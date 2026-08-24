@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import copy
 from typing import Any, Literal
 
 import yaml
@@ -106,3 +107,22 @@ def dump_league_config(config: LeagueConfig) -> str:
 
 def load_league_config_text(text: str) -> LeagueConfig:
     return LeagueConfig.model_validate(yaml.safe_load(text))
+
+
+def configure_draft_session(
+    master: LeagueConfig, *, team_count: int, our_draft_slot: int
+) -> LeagueConfig:
+    """Create a validated per-session config without mutating the master config."""
+    if not 1 <= our_draft_slot <= team_count:
+        raise ValueError("our draft slot must be within the configured team count")
+    raw = copy.deepcopy(master.model_dump())
+    raw["league"]["team_count"] = team_count
+    if team_count != len(master.teams):
+        raw["teams"] = [
+            {"id": f"team-{slot}", "name": f"Team {slot}", "draft_slot": slot}
+            for slot in range(1, team_count + 1)
+        ]
+    raw["draft"]["our_team_id"] = next(
+        team["id"] for team in raw["teams"] if team["draft_slot"] == our_draft_slot
+    )
+    return LeagueConfig.model_validate(raw)

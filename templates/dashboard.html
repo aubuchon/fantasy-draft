@@ -5,6 +5,9 @@
     <p class="eyebrow">{{ state.config.league.name }}</p>
     <h1>Fantasy Draft AI</h1>
   </div>
+  <a class="button" href="/drafts">Draft sessions</a>
+  <a class="button" href="/data">Data health</a>
+  <a class="button" href="/readiness">Readiness</a>
   {% if state.current_pick %}
   <div class="clock-card {% if state.current_team_id == state.config.draft.our_team_id %}ours{% endif %}">
     <span>On the clock</span>
@@ -25,6 +28,7 @@
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
 
 <main class="layout">
+  {% if state.draft_status != "active" %}<div class="flash warning full-width">This {{ state.draft_status }} draft is read-only. Use Draft sessions to activate, switch, or reset.</div>{% endif %}
   <section class="panel entry-panel">
     <div class="panel-heading">
       <div><p class="eyebrow">Manual entry</p><h2>Available players</h2></div>
@@ -54,17 +58,18 @@
     </form>
     <div class="table-wrap player-list">
       <table>
-        <thead><tr><th>Rank</th><th>Player</th><th>Pos</th><th>ADP</th><th>Tier</th><th>Proj</th><th></th></tr></thead>
+        <thead><tr><th>Rank</th><th>Player</th><th>Pos</th><th>ADP</th><th>Tier</th><th>Proj</th><th>VOR</th><th>Survive</th><th></th></tr></thead>
         <tbody>
         {% for player in available %}
           <tr>
             <td>{{ player.overall_rank or "—" }}</td>
             <td><strong>{{ player.name }}</strong><small>{{ player.nfl_team or "FA" }}</small></td>
             <td><span class="position pos-{{ player.primary_position|lower }}">{{ player.primary_position }}</span></td>
-            <td>{{ player.adp or "—" }}</td><td>{{ player.tier or "—" }}</td><td>{{ player.projected_points or "—" }}</td>
-            <td><form action="/picks" method="post" data-pick-form><input type="hidden" name="player_id" value="{{ player.id }}"><button class="button primary" type="submit">Draft</button></form></td>
+            {% set analytic = evaluation_by_id.get(player.id) %}
+            <td>{{ analytic.adp if analytic and analytic.adp is not none else player.adp or "—" }}</td><td>{{ analytic.our_tier if analytic else player.tier or "—" }}</td><td>{{ analytic.projected_points if analytic else player.projected_points or "—" }}</td><td>{{ "%+.1f"|format(analytic.vor) if analytic else "—" }}</td><td>{{ "%.0f%%"|format(analytic.survival_probability * 100) if analytic and analytic.survival_probability is not none else "—" }}</td>
+            <td>{% if state.draft_status == "active" %}<form action="/picks" method="post" data-pick-form><input type="hidden" name="player_id" value="{{ player.id }}"><button class="button primary" type="submit">Draft</button></form>{% endif %}</td>
           </tr>
-        {% else %}<tr><td colspan="7">No available players match.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="9">No available players match.</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
@@ -73,7 +78,7 @@
   <aside class="panel recommendations">
     <div class="panel-heading"><div><p class="eyebrow">{{ recommendations.source }}</p><h2>Strategy recommendations</h2></div></div>
     {% if recommendations.preferred %}
-    <div class="preferred"><span>Recommendation</span><strong>{{ recommendations.preferred.player.name }}</strong><small>{{ recommendations.preferred.confidence }}% baseline confidence</small></div>
+    <div class="preferred"><span>Recommendation</span><strong>{{ recommendations.preferred.player.name }}</strong><small>{{ recommendations.overall_confidence or recommendations.preferred.confidence }}% confidence{% if recommendations.latency_ms %} · {{ recommendations.latency_ms }} ms{% endif %}</small>{% if recommendations.reason %}<p>{{ recommendations.reason }}</p>{% endif %}</div>
     {% endif %}
     <ol class="recommendation-list">
       {% for item in recommendations.recommendations %}
@@ -86,7 +91,7 @@
   </aside>
 
   <section class="panel board-panel">
-    <div class="panel-heading"><div><p class="eyebrow">Persisted immediately</p><h2>Draft board</h2></div><span>{{ state.picks|length }} / {{ state.config.draft.rounds * state.config.league.team_count }} picks</span></div>
+    <div class="panel-heading"><div><p class="eyebrow">Persisted immediately</p><h2>Draft board</h2></div><div class="export-actions"><a class="button" href="/drafts/{{ state.draft_id }}/export.json">JSON</a><a class="button" href="/drafts/{{ state.draft_id }}/export.csv">CSV</a><form action="/backup" method="post"><button class="button" type="submit">Backup DB</button></form><span>{{ state.picks|length }} / {{ state.config.draft.rounds * state.config.league.team_count }} picks</span></div></div>
     <div class="table-wrap board-wrap">
       <table class="draft-board">
         <thead><tr><th>Rd</th>{% for team in teams %}<th class="{% if team.id == state.config.draft.our_team_id %}our-column{% endif %}">{{ team.name }}<small>Slot {{ team.draft_slot }}</small></th>{% endfor %}</tr></thead>
@@ -116,7 +121,7 @@
     </div>
   </section>
 
-  {% if state.picks %}
+  {% if state.picks and state.draft_status == "active" %}
   <details class="panel correction-panel"><summary>Correct an earlier pick</summary>
     <form id="correction-form" method="post">
       <label><span>Pick</span><select id="correction-pick">{% for pick in state.picks %}<option value="{{ pick.overall_pick }}">#{{ pick.overall_pick }} — {{ pick.player.name }} ({{ team_names[pick.team_id] }})</option>{% endfor %}</select></label>

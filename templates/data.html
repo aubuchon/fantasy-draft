@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Data Health · Fantasy Draft AI{% endblock %}
+{% block content %}
+<header class="topbar"><div><p class="eyebrow">Provider cache and identity</p><h1>Data Health</h1></div><a class="button" href="/">Back to board</a></header>
+{% if message %}<div class="flash success">{{ message }}</div>{% endif %}
+{% if error %}<div class="flash error">{{ error }} Existing local data remains available.</div>{% endif %}
+<main class="sessions-layout">
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">Explicit refresh only</p><h2>FantasyPros</h2></div></div><div class="status-grid">
+    <p><span>API key</span><strong>{{ "Configured" if key_configured else "Not configured" }}</strong></p>
+    <p><span>Canonical players</span><strong>{{ status.players }}</strong></p>
+    <p><span>Ranked players</span><strong>{{ status.ranked }}</strong></p>
+    <p><span>Projected players</span><strong>{{ status.projected }}</strong></p>
+    <p><span>External IDs</span><strong>{{ status.external_ids }}</strong></p>
+    <p><span>Unmatched review</span><strong>{{ status.unmatched }}</strong></p>
+    <form action="/data/refresh" method="post"><button class="button primary" type="submit" {% if not key_configured %}disabled{% endif %}>Refresh players, rankings, ADP, projections, and crosswalk</button></form>
+  </div></section>
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">Audited imports</p><h2>Latest datasets</h2></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Dataset</th><th>Status</th><th>Mode</th><th>Received</th><th>Matched</th><th>Created</th><th>Unmatched</th><th>Completed</th></tr></thead><tbody>
+    {% for key, run in status.latest.items() %}<tr><td>{{ key }}</td><td>{{ run.status }}</td><td>{{ run.data_mode }}</td><td>{{ run.records_received }}</td><td>{{ run.records_matched }}</td><td>{{ run.records_created }}</td><td>{{ run.records_unmatched }}</td><td>{{ run.completed_at or "—" }}</td></tr>{% else %}<tr><td colspan="8">No external imports yet. Sample CSV players remain usable.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  {% if status.unmatched_records %}<section class="panel session-list"><div class="panel-heading"><div><p class="eyebrow">Manual review required</p><h2>Unmatched players</h2></div></div><div class="table-wrap"><table><thead><tr><th>Provider</th><th>Name</th><th>Pos</th><th>Team</th><th>External ID</th><th>Reason</th></tr></thead><tbody>{% for item in status.unmatched_records %}<tr><td>{{ item.provider }}</td><td>{{ item.name or "—" }}</td><td>{{ item.position or "—" }}</td><td>{{ item.team or "—" }}</td><td>{{ item.external_id or "—" }}</td><td>{{ item.reason }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+</main>
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Draft Sessions · Fantasy Draft AI{% endblock %}
+{% block content %}
+<header class="topbar"><div><p class="eyebrow">Persistent sessions</p><h1>Draft Sessions</h1></div><a class="button" href="/">Back to board</a></header>
+{% if message %}<div class="flash success">{{ message }}</div>{% endif %}
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<main class="sessions-layout">
+  <section class="panel session-create"><div class="panel-heading"><div><p class="eyebrow">Configuration snapshot</p><h2>New Draft</h2></div></div>
+    <form action="/drafts" method="post" class="stack-form">
+      <label><span>Name / label</span><input name="name" required value="{{ master.league.name }} Practice"></label>
+      <label><span>Season</span><input name="season" type="number" min="2020" max="2100" required value="{{ current_year }}"></label>
+      <label><span>Mode</span><select name="draft_kind"><option value="practice">Practice / rehearsal</option><option value="live">Live draft</option></select></label>
+      <label><span>Teams</span><input name="team_count" type="number" min="2" max="32" required value="{{ master.league.team_count }}"></label>
+      <label><span>Our draft slot</span><input name="our_draft_slot" type="number" min="1" max="{{ master.league.team_count }}" required value="{{ master.team_by_id(master.draft.our_team_id).draft_slot }}"></label>
+      <label class="check"><input name="start_immediately" type="checkbox" value="true" checked> <span>Start immediately</span></label>
+      <button class="button primary" type="submit">Create and select draft</button>
+    </form>
+  </section>
+  <section class="panel session-list"><div class="panel-heading"><div><p class="eyebrow">No destructive reset</p><h2>Saved Drafts</h2></div></div>
+    {% for draft in drafts %}<article class="session-row {% if draft.id == current_draft_id %}current-session{% endif %}">
+      <div><strong>{{ draft.name }}</strong><small>#{{ draft.id }} · {{ draft.season }} · {{ draft.draft_kind }} · {{ draft.status }}</small></div>
+      <div class="session-actions">
+        <a class="button" href="/drafts/{{ draft.id }}/export.json">JSON</a><a class="button" href="/drafts/{{ draft.id }}/export.csv">CSV</a>
+        {% if draft.id != current_draft_id %}<form method="post" action="/drafts/{{ draft.id }}/switch"><button class="button">View</button></form>{% endif %}
+        {% if draft.status == "setup" %}<form method="post" action="/drafts/{{ draft.id }}/activate"><button class="button primary">Start</button></form>{% endif %}
+        {% if draft.status != "archived" %}<form method="post" action="/drafts/{{ draft.id }}/reset" data-confirm="Archive this draft and start an empty copy?"><button class="button">Reset safely</button></form><form method="post" action="/drafts/{{ draft.id }}/archive" data-confirm="Archive this draft? Picks will be preserved."><button class="button danger">Archive</button></form>{% endif %}
+      </div>
+    </article>{% else %}<p class="empty padded">No draft sessions yet.</p>{% endfor %}
+  </section>
+</main>
+{% endblock %}

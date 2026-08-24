@@ -49,6 +49,15 @@ def test_live_draft_web_and_api_flow(tmp_path):
         assert undone.status_code == 200
         assert client.get("/api/state").json()["current_pick"]["overall"] == 1
 
+        exported = client.get("/drafts/1/export.json")
+        assert exported.status_code == 200
+        assert exported.json()["draft"]["id"] == 1
+        assert client.get("/drafts/1/export.csv").status_code == 200
+        assert "RUN DRAFT READINESS CHECK" in client.get("/readiness").text
+        readiness = client.post("/readiness")
+        assert readiness.status_code == 200
+        assert "DRAFT ENGINE" in readiness.text
+
 
 def test_health_endpoint(tmp_path):
     root = Path(__file__).parents[1]

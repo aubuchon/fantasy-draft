@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Draft readiness · Fantasy Draft AI{% endblock %}
+{% block content %}
+<header class="topbar">
+  <div><p class="eyebrow">Operational rehearsal</p><h1>Draft Readiness</h1></div>
+  <a class="button" href="/">Draft board</a>
+  <a class="button" href="/data">Data health</a>
+</header>
+<main class="readiness-layout">
+  <section class="panel readiness-hero {% if report %}result-{{ report.status|lower }}{% endif %}">
+    <div><p class="eyebrow">Draft #{{ draft_id }}</p><h2>{% if report %}{{ report.status }} FOR DRAFT{% else %}Pre-draft safety check{% endif %}</h2></div>
+    <p>The check uses isolated state for pick/undo/correction tests. It never changes this draft's picks.</p>
+    <form method="post"><button class="button primary" type="submit">RUN DRAFT READINESS CHECK</button></form>
+  </section>
+  {% if report %}
+    {% for section, checks in report.sections.items() %}
+    <section class="panel readiness-section">
+      <div class="panel-heading"><h2>{{ section }}</h2></div>
+      {% for check in checks %}
+      <div class="check-row status-{{ check.status|lower }}">
+        <strong>{{ check.status }}</strong><div><span>{{ check.message }}</span>{% if check.detail %}<small>{{ check.detail }}</small>{% endif %}</div>
+      </div>
+      {% endfor %}
+    </section>
+    {% endfor %}
+    <p class="generated">Generated {{ report.generated_at }}</p>
+  {% endif %}
+</main>
+{% endblock %}

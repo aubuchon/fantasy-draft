@@ -13,10 +13,17 @@ The current product is a fast, dependable copilot for a manually entered live fa
 - Preserve undo and correction behavior. Changes to pick mutation code require persistence and rollback tests.
 - Reconstruct rosters from saved picks; do not maintain an independently mutable roster copy that can drift from draft history.
 - Snapshot validated league configuration into a draft so an application restart reproduces identical in-progress state.
+- Snapshot external import-run references into each draft. Never silently revalue an in-progress or archived draft against newer provider data.
+- Draft reset is archival plus an empty cloned session. Destructive deletion is not the normal reset workflow.
 - Keep quantitative player evaluation separate from both draft rules and LLM strategy. Quantitative evaluation occurs before LLM reasoning.
 - Treat AI recommendations as advisory and disposable. The live board and manual entry must work when models, APIs, providers, or the internet are unavailable.
 - Wrap external/model advisors with the resilient fallback boundary; never let an advisor exception escape into draft entry or board rendering.
 - Provider integrations must map external records to canonical player IDs. Do not couple the draft engine to a ranking, ADP, projection, news, or model provider.
+- Internal player IDs belong to this application. Provider IDs and player names are never canonical primary keys. Prefer exact external-ID matching; quarantine ambiguous fallback matches.
+- Calculate fantasy points from raw provider statistics through the snapshotted league scoring configuration. Provider generic fantasy points are informational only.
+- Preserve provider import audits, data-mode/freshness labels, source checksums/caches, and unmatched-review records. External failure must leave the last usable local data intact.
+- Validate every AI response against a strict schema and the deterministic available-candidate allowlist. Use bounded timeouts, avoid page-load API spam, and persist only validated advisory history.
+- Export and backup formats must never include secrets. Readiness checks must not mutate the selected draft.
 - Prefer small, testable deterministic functions and a single-process architecture. Avoid distributed infrastructure unless measured requirements justify it.
 
 ## Live-draft UX rules

@@ -1,0 +1,50 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b1018;
+  --panel: #121a25;
+  --panel-2: #182332;
+  --line: #263547;
+  --text: #eef4fb;
+  --muted: #96a7ba;
+  --accent: #38d39f;
+  --accent-2: #27a77d;
+  --danger: #ff6b72;
+  --warning: #f6c85f;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { margin-bottom: 0; font-size: 24px; }
+h2 { margin-bottom: 0; font-size: 18px; }
+.eyebrow { margin-bottom: 3px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.topbar { position: sticky; top: 0; z-index: 10; display: flex; gap: 14px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--line); background: rgba(11,16,24,.96); backdrop-filter: blur(12px); }
+.topbar > div:first-child { margin-right: auto; }
+.clock-card, .next-card { display: grid; min-width: 180px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.clock-card.ours { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.clock-card span, .next-card span, small { color: var(--muted); font-size: 11px; }
+.clock-card strong, .next-card strong { font-size: 16px; }
+.flash { margin: 12px 18px 0; padding: 10px 14px; border-radius: 6px; font-weight: 700; }
+.success { background: #153b31; color: #8af0ce; }.error { background: #482127; color: #ffb5ba; }
+.layout { display: grid; grid-template-columns: minmax(560px, 1.7fr) minmax(320px, .8fr); gap: 14px; padding: 14px 18px 30px; }
+.panel { min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); overflow: hidden; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-bottom: 1px solid var(--line); }
+.panel-heading p { margin-bottom: 2px; }
+.filters { display: flex; gap: 8px; align-items: end; padding: 10px 14px; background: var(--panel-2); }
+label { display: grid; gap: 3px; } label span { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+input, select { min-height: 34px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 5px; background: #0d141e; color: var(--text); }
+.filters label:first-child { flex: 1; }
+.button { min-height: 34px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 5px; background: #253347; color: var(--text); cursor: pointer; font-weight: 800; }
+.button:hover { filter: brightness(1.18); }.button.primary { border-color: var(--accent-2); background: var(--accent-2); }.button.danger { border-color: #71323a; color: #ffb2b7; }
+.table-wrap { overflow: auto; } table { width: 100%; border-collapse: collapse; }
+th, td { padding: 8px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { position: sticky; top: 0; z-index: 2; background: var(--panel-2); color: var(--muted); font-size: 11px; text-transform: uppercase; }
+td strong { display: block; } td small { display: block; }
+.player-list { max-height: 500px; }.player-list tr:hover td { background: #172332; }
+.position { display: inline-flex; min-width: 34px; justify-content: center; padding: 2px 5px; border-radius: 4px; background: #324057; font-size: 11px; font-weight: 900; }
+.pos-rb { background: #285941; }.pos-wr { background: #33527a; }.pos-qb { background: #653c65; }.pos-te { background: #6c5431; }.pos-k, .pos-def { background: #4d5360; }
+.recommendations { grid-column: 2; grid-row: 1; }.preferred { display: grid; margin: 12px; padding: 12px; border: 1px solid var(--accent); border-radius: 7px; background: #113429; }.preferred span { color: var(--accent); font-size: 11px; font-weight: 900; text-transform: uppercase; }.preferred strong { font-size: 19px; }
+.recommendation-list { margin: 0; padding: 0 18px 5px 42px; }.recommendation-list li { padding: 9px 0; border-bottom: 1px solid var(--line); }.recommendation-list li > b { color: var(--accent); font-size: 10px; }.recommendation-list p { margin: 3px 0 0; color: var(--muted); font-size: 12px; white-space: normal; }.strategy, .turn-needs, .disclaimer { margin: 11px 14px; }.strategy p, .disclaimer { color: var(--muted); font-size: 12px; }.turn-needs { padding-top: 10px; border-top: 1px solid var(--line); }.turn-needs p { display: flex; justify-content: space-between; gap: 10px; margin: 5px 0; color: var(--muted); font-size: 11px; }.turn-needs p span { color: var(--text); }.disclaimer { padding-top: 10px; border-top: 1px solid var(--line); }
+.board-panel, .roster-panel, .correction-panel { grid-column: 1 / -1; }.board-wrap { max-height: 530px; }.draft-board { min-width: 1000px; table-layout: fixed; }.draft-board th:first-child { width: 42px; }.draft-board td { height: 61px; white-space: normal; vertical-align: top; }.draft-board td > span { color: var(--muted); font-size: 11px; }.draft-board td.current { outline: 2px solid var(--warning); outline-offset: -2px; background: #3a3420; }.draft-board .our-column { background-color: rgba(56,211,159,.07); }
+.roster-grid { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 1px; background: var(--line); }.roster-card { padding: 11px; background: var(--panel); }.roster-card.ours { background: #102820; }.roster-card h3 { display: flex; justify-content: space-between; margin-bottom: 3px; }.roster-card h3 span { color: var(--accent); font-size: 9px; }.roster-card .remaining { margin-bottom: 8px; color: var(--muted); font-size: 10px; }.roster-card > div { display: grid; grid-template-columns: 52px 1fr 32px; gap: 5px; padding: 4px 0; border-top: 1px solid var(--line); font-size: 12px; }.roster-card .slot { color: var(--accent); font-size: 10px; font-weight: 800; }.empty { color: var(--muted); }
+.correction-panel { padding: 13px 15px; }.correction-panel summary { cursor: pointer; font-weight: 800; }.correction-panel form { display: flex; gap: 10px; align-items: end; margin-top: 12px; }.correction-panel label:nth-child(2) { flex: 1; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; }.recommendations { grid-column: 1; grid-row: auto; }.board-panel,.roster-panel,.correction-panel { grid-column: 1; }.roster-grid { grid-template-columns: repeat(2,1fr); }.topbar { flex-wrap: wrap; }.clock-card,.next-card { min-width: 145px; }.filters { flex-wrap: wrap; } }

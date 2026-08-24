@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="topbar">
+  <div>
+    <p class="eyebrow">{{ state.config.league.name }}</p>
+    <h1>Fantasy Draft AI</h1>
+  </div>
+  {% if state.current_pick %}
+  <div class="clock-card {% if state.current_team_id == state.config.draft.our_team_id %}ours{% endif %}">
+    <span>On the clock</span>
+    <strong>{{ current_team }}</strong>
+    <small>Round {{ state.current_pick.round_number }}, Pick {{ state.current_pick.pick_in_round }} · #{{ state.current_pick.overall }}</small>
+  </div>
+  <div class="next-card">
+    <span>{% if state.current_team_id == state.config.draft.our_team_id %}Our following pick{% else %}Our next pick{% endif %}</span>
+    <strong>#{{ state.next_user_pick or "—" }}</strong>
+    <small>{{ state.picks_until_user_pick if state.picks_until_user_pick is not none else "—" }} selections before it</small>
+  </div>
+  {% else %}
+  <div class="clock-card"><strong>Draft complete</strong></div>
+  {% endif %}
+</header>
+
+{% if message %}<div class="flash success">{{ message }}</div>{% endif %}
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+<main class="layout">
+  <section class="panel entry-panel">
+    <div class="panel-heading">
+      <div><p class="eyebrow">Manual entry</p><h2>Available players</h2></div>
+      {% if state.picks %}
+      <form action="/picks/undo" method="post" data-confirm="Undo the most recent pick?">
+        <button class="button danger" type="submit">Undo last</button>
+      </form>
+      {% endif %}
+    </div>
+    <form class="filters" method="get">
+      <label><span>Search</span><input id="player-search" name="search" value="{{ search }}" placeholder="Player name" autocomplete="off"></label>
+      <label><span>Position</span>
+        <select name="position" onchange="this.form.submit()">
+          <option value="">All</option>
+          {% for pos in positions %}<option {% if position == pos %}selected{% endif %}>{{ pos }}</option>{% endfor %}
+        </select>
+      </label>
+      <label><span>Sort</span>
+        <select name="sort" onchange="this.form.submit()">
+          <option value="rank" {% if sort == "rank" %}selected{% endif %}>Overall rank</option>
+          <option value="adp" {% if sort == "adp" %}selected{% endif %}>ADP</option>
+          <option value="tier" {% if sort == "tier" %}selected{% endif %}>Tier</option>
+          <option value="projection" {% if sort == "projection" %}selected{% endif %}>Projection</option>
+        </select>
+      </label>
+      <button class="button" type="submit">Find</button>
+    </form>
+    <div class="table-wrap player-list">
+      <table>
+        <thead><tr><th>Rank</th><th>Player</th><th>Pos</th><th>ADP</th><th>Tier</th><th>Proj</th><th></th></tr></thead>
+        <tbody>
+        {% for player in available %}
+          <tr>
+            <td>{{ player.overall_rank or "—" }}</td>
+            <td><strong>{{ player.name }}</strong><small>{{ player.nfl_team or "FA" }}</small></td>
+            <td><span class="position pos-{{ player.primary_position|lower }}">{{ player.primary_position }}</span></td>
+            <td>{{ player.adp or "—" }}</td><td>{{ player.tier or "—" }}</td><td>{{ player.projected_points or "—" }}</td>
+            <td><form action="/picks" method="post" data-pick-form><input type="hidden" name="player_id" value="{{ player.id }}"><button class="button primary" type="submit">Draft</button></form></td>
+          </tr>
+        {% else %}<tr><td colspan="7">No available players match.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside class="panel recommendations">
+    <div class="panel-heading"><div><p class="eyebrow">{{ recommendations.source }}</p><h2>Strategy recommendations</h2></div></div>
+    {% if recommendations.preferred %}
+    <div class="preferred"><span>Recommendation</span><strong>{{ recommendations.preferred.player.name }}</strong><small>{{ recommendations.preferred.confidence }}% baseline confidence</small></div>
+    {% endif %}
+    <ol class="recommendation-list">
+      {% for item in recommendations.recommendations %}
+      <li><div><strong>{{ item.player.name }}</strong> <span class="position pos-{{ item.player.primary_position|lower }}">{{ item.player.primary_position }}</span></div><b>{{ item.category }}</b><p>{{ item.explanation }}</p></li>
+      {% endfor %}
+    </ol>
+    <div class="strategy"><strong>Next-pick strategy</strong><p>{{ recommendations.next_pick_strategy }}</p></div>
+    {% if teams_before %}<div class="turn-needs"><strong>Teams before our pick</strong>{% for team_id in teams_before %}<p><span>{{ team_names[team_id] }}</span> {{ state.team_needs[team_id]|join(", ") or "starter slots filled" }}</p>{% endfor %}</div>{% endif %}
+    <p class="disclaimer">Advisory only. Draft state and roster legality come from the deterministic engine.</p>
+  </aside>
+
+  <section class="panel board-panel">
+    <div class="panel-heading"><div><p class="eyebrow">Persisted immediately</p><h2>Draft board</h2></div><span>{{ state.picks|length }} / {{ state.config.draft.rounds * state.config.league.team_count }} picks</span></div>
+    <div class="table-wrap board-wrap">
+      <table class="draft-board">
+        <thead><tr><th>Rd</th>{% for team in teams %}<th class="{% if team.id == state.config.draft.our_team_id %}our-column{% endif %}">{{ team.name }}<small>Slot {{ team.draft_slot }}</small></th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for round_number in range(1, state.config.draft.rounds + 1) %}
+          <tr><th>{{ round_number }}</th>
+          {% for team in teams %}
+            {% set pick = pick_lookup.get((round_number, team.id)) %}
+            {% set cell_overall = (round_number - 1) * state.config.league.team_count + (team.draft_slot if round_number % 2 else state.config.league.team_count - team.draft_slot + 1) %}
+            <td class="{% if team.id == state.config.draft.our_team_id %}our-column{% endif %} {% if state.current_pick and cell_overall == state.current_pick.overall %}current{% endif %}">
+              <small>#{{ cell_overall }}</small>
+              {% if pick %}<strong>{{ pick.player.name }}</strong><span>{{ pick.player.primary_position }}</span>{% else %}<em>—</em>{% endif %}
+            </td>
+          {% endfor %}</tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel roster-panel">
+    <div class="panel-heading"><div><p class="eyebrow">All teams</p><h2>Rosters</h2></div></div>
+    <div class="roster-grid">
+      {% for team in teams %}<article class="roster-card {% if team.id == state.config.draft.our_team_id %}ours{% endif %}"><h3>{{ team.name }}{% if team.id == state.config.draft.our_team_id %}<span>OUR TEAM</span>{% endif %}</h3><p class="remaining">{{ state.team_remaining_slots[team.id]|length }} slots open · Needs {{ state.team_needs[team.id]|join(", ") or "bench depth" }}</p>
+        {% for pick in rosters[team.id] %}<div><span class="slot">{{ state.roster_assignments[team.id].get(pick.player.id, "—") }}</span><strong>{{ pick.player.name }}</strong><span>{{ pick.player.primary_position }}</span></div>{% else %}<p class="empty">No picks yet</p>{% endfor %}
+      </article>{% endfor %}
+    </div>
+  </section>
+
+  {% if state.picks %}
+  <details class="panel correction-panel"><summary>Correct an earlier pick</summary>
+    <form id="correction-form" method="post">
+      <label><span>Pick</span><select id="correction-pick">{% for pick in state.picks %}<option value="{{ pick.overall_pick }}">#{{ pick.overall_pick }} — {{ pick.player.name }} ({{ team_names[pick.team_id] }})</option>{% endfor %}</select></label>
+      <label><span>Replacement</span><select name="player_id">{% for player in state.available_players %}<option value="{{ player.id }}">#{{ player.overall_rank or "—" }} {{ player.name }} — {{ player.primary_position }}</option>{% endfor %}</select></label>
+      <button class="button danger" type="submit">Replace saved player</button>
+    </form>
+  </details>
+  {% endif %}
+</main>
+{% endblock %}

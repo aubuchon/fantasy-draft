@@ -1,0 +1,107 @@
+schema_version: 1
+
+league:
+  external_id: "948748"
+  name: "Hope Ranch Donkey's"
+  platform: "Yahoo Sports"
+  team_count: 8
+  scoring_type: head_to_head
+  start_scoring_week: 1
+  public: false
+  auto_renew: true
+
+draft:
+  type: snake
+  entry_mode: manual_offline
+  rounds: 17
+  our_team_id: team-1
+  allow_pick_trades: false
+
+# Replace names and reorder draft_slot values when the real order is known.
+teams:
+  - {id: team-1, name: Team 1, draft_slot: 1}
+  - {id: team-2, name: Team 2, draft_slot: 2}
+  - {id: team-3, name: Team 3, draft_slot: 3}
+  - {id: team-4, name: Team 4, draft_slot: 4}
+  - {id: team-5, name: Team 5, draft_slot: 5}
+  - {id: team-6, name: Team 6, draft_slot: 6}
+  - {id: team-7, name: Team 7, draft_slot: 7}
+  - {id: team-8, name: Team 8, draft_slot: 8}
+
+roster:
+  slots:
+    - {code: QB, label: Quarterback, count: 1, eligible_positions: [QB]}
+    - {code: WR, label: Wide Receiver, count: 3, eligible_positions: [WR]}
+    - {code: RB, label: Running Back, count: 2, eligible_positions: [RB]}
+    - {code: TE, label: Tight End, count: 1, eligible_positions: [TE]}
+    - {code: FLEX, label: WR/RB Flex, count: 1, eligible_positions: [WR, RB]}
+    - {code: K, label: Kicker, count: 1, eligible_positions: [K]}
+    - {code: DEF, label: Team Defense, count: 1, eligible_positions: [DEF]}
+    - {code: BENCH, label: Bench, count: 7, eligible_positions: [QB, WR, RB, TE, K, DEF], starter: false}
+    - {code: IR, label: Injured Reserve, count: 1, eligible_positions: [QB, WR, RB, TE, K, DEF], draftable: false, starter: false}
+
+scoring:
+  fractional_points: true
+  negative_points: true
+  passing:
+    yards_per_point: 25
+    touchdowns: 5
+    interceptions: -1
+    bonuses: [{threshold_yards: 400, points: 2}]
+  rushing:
+    yards_per_point: 10
+    touchdowns: 6
+    bonuses: [{threshold_yards: 100, points: 2}]
+  receiving:
+    receptions: 1
+    yards_per_point: 10
+    touchdowns: 6
+    bonuses: [{threshold_yards: 100, points: 2}]
+  misc:
+    return_touchdowns: 6
+    two_point_conversions: 2
+    fumbles_lost: -2
+    offensive_fumble_return_touchdowns: 6
+  kicking:
+    field_goals: {"0-19": 3, "20-29": 3, "30-39": 3, "40-49": 4, "50+": 6}
+    extra_point_made: 1
+    extra_point_missed: -1
+  defense:
+    sack: 1
+    interception: 2
+    fumble_recovery: 2
+    touchdown: 6
+    safety: 3
+    blocked_kick: 2
+    return_touchdown: 6
+    extra_point_returned: 2
+    points_allowed: {"0": 15, "1-6": 7, "7-13": 4, "14-20": 1, "28-34": -1, "35+": -4}
+
+transactions:
+  season_acquisition_limit: 32
+  weekly_acquisition_limit: null
+  season_trade_limit: null
+  trade_deadline: "2026-11-28"
+  trade_review: league_vote
+  trade_reject_days: 2
+  waiver_days: 2
+  waiver_type: continual_rolling
+  weekly_waivers: game_time_through_tuesday
+  allow_direct_ir_adds: true
+  post_draft_players: free_agents
+  cant_cut_provider: Yahoo Sports
+
+playoffs:
+  team_count: 4
+  weeks: [16, 17]
+  higher_seed_wins_ties: true
+  reseed: false
+
+rules:
+  divisions: false
+  lock_eliminated_teams: false
+  play_against_median: false
+  second_opponent: false
+  postponed_games_receive_injured_status: false
+  lock_benched_players: false
+  invite_permissions: all_managers

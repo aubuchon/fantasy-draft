@@ -52,6 +52,10 @@ The app reads the master YAML whenever it creates a new draft. Every draft recei
 
 Use `practice` sessions for rehearsal and `live` for draft night. Pick entry, recommendations, undo, correction, export, and reset behave identically.
 
+```bash
+.venv/bin/fantasy-draft-ops new-draft --name "Draft-night rehearsal" --kind practice
+```
+
 ## Environment variables
 
 The application reads process environment variables and never exposes provider keys to the browser. Copy the names in `.env.example` into your shell/process manager; `.env` files are ignored but are not loaded automatically.

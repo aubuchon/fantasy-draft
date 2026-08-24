@@ -4,7 +4,7 @@ import argparse
 from datetime import date
 from pathlib import Path
 
-from fantasy_draft.config import load_league_config
+from fantasy_draft.config import configure_draft_session, load_league_config
 from fantasy_draft.data_import import DataImportService
 from fantasy_draft.database import create_database_engine, create_session_factory
 from fantasy_draft.evaluation import BaselinePlayerEvaluator
@@ -49,6 +49,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Fantasy Draft AI operational commands")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("refresh-data", help="Refresh FantasyPros and DynastyProcess data")
+    new_parser = subparsers.add_parser("new-draft", help="Create and select a new draft session")
+    new_parser.add_argument("--name", required=True)
+    new_parser.add_argument("--season", type=int, default=date.today().year)
+    new_parser.add_argument("--kind", choices=["practice", "live"], default="practice")
+    new_parser.add_argument("--team-count", type=int)
+    new_parser.add_argument("--our-slot", type=int)
+    new_parser.add_argument("--setup", action="store_true", help="Create without activating")
     readiness_parser = subparsers.add_parser("readiness", help="Run the pre-draft readiness check")
     readiness_parser.add_argument("--offline", action="store_true", help="Skip live provider diagnostics")
     export_parser = subparsers.add_parser("export", help="Export a draft")
@@ -60,7 +67,19 @@ def main() -> None:
     settings = AppSettings.from_environment()
     engine, factory, service, draft_id, importer, evaluator, exporter, backup_service, fp, ai = _services(settings)
     try:
-        if args.command == "refresh-data":
+        if args.command == "new-draft":
+            master = load_league_config(settings.league_config_path)
+            config = configure_draft_session(
+                master,
+                team_count=args.team_count or master.league.team_count,
+                our_draft_slot=args.our_slot or master.team_by_id(master.draft.our_team_id).draft_slot,
+            )
+            created = service.create_draft(
+                config, name=args.name, season=args.season, draft_kind=args.kind,
+                status="setup" if args.setup else "active",
+            )
+            print(f"Created and selected {args.kind} draft {created}: {args.name}")
+        elif args.command == "refresh-data":
             state = service.get_state(draft_id)
             positions = sorted({
                 position for slot in state.config.roster.slots if slot.draftable

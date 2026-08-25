@@ -6,7 +6,6 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -55,7 +54,7 @@ class ReadinessService:
         backup_dir: Path,
         backup_service: DatabaseBackupService | None = None,
         fantasypros_provider: FantasyProsProvider | None = None,
-        ai_advisor: OpenAIStrategicAdvisor | None = None,
+        ai_diagnostic_advisor: OpenAIStrategicAdvisor | None = None,
         openai_configured: bool = False,
     ):
         self.session_factory = session_factory
@@ -66,7 +65,7 @@ class ReadinessService:
         self.backup_dir = backup_dir
         self.backup_service = backup_service
         self.fantasypros_provider = fantasypros_provider
-        self.ai_advisor = ai_advisor
+        self.ai_diagnostic_advisor = ai_diagnostic_advisor
         self.openai_configured = openai_configured
 
     def _engine_rehearsal(self, config: LeagueConfig) -> str:
@@ -223,14 +222,30 @@ class ReadinessService:
             "PASS" if offline.preferred else "FAIL",
             "Deterministic advisor works without AI." if offline.preferred else "Deterministic advisor returned no candidate.",
         ))
-        if not self.openai_configured or self.ai_advisor is None:
+        if not self.openai_configured or self.ai_diagnostic_advisor is None:
             sections["AI"].append(Check("WARNING", "OPENAI_API_KEY is not configured; deterministic fallback is active."))
         elif evaluated and live_external_checks:
-            try:
-                result = self.ai_advisor.recommend(state, evaluated, force=True, persist=False)
-                sections["AI"].append(Check("PASS", f"{result.source} structured output validated in {(result.latency_ms or 0) / 1000:.2f}s."))
-            except Exception as exc:
-                sections["AI"].append(Check("WARNING", "AI diagnostic failed; deterministic fallback remains operational.", type(exc).__name__))
+            diagnostic = self.ai_diagnostic_advisor.diagnose(state, evaluated)
+            configuration = (
+                f"configured_model={diagnostic.configured_model}; "
+                f"model_used={diagnostic.model_used or 'not returned'}; "
+                f"reasoning_effort={diagnostic.reasoning_effort}; "
+                f"timeout={diagnostic.timeout_seconds:g}s; "
+                f"max_retries={diagnostic.max_retries}; "
+                f"latency={diagnostic.latency_ms / 1000:.2f}s; "
+                f"structured_output={'PASS' if diagnostic.structured_output_valid else 'NOT VALIDATED'}"
+            )
+            if diagnostic.success:
+                sections["AI"].append(Check(
+                    "PASS", "OpenAI diagnostic succeeded.", configuration
+                ))
+            else:
+                sections["AI"].append(Check(
+                    "WARNING",
+                    "AI diagnostic failed; deterministic fallback remains operational.",
+                    f"{configuration}; failure_category={diagnostic.failure_category}; "
+                    f"exception={diagnostic.exception_type}",
+                ))
 
         try:
             exported = self.exporter.json_data(draft_id)

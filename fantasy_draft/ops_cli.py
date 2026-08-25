@@ -36,13 +36,22 @@ def _services(settings: AppSettings):
         base_url=settings.fantasypros_base_url,
         timeout_seconds=settings.fantasypros_timeout_seconds,
     )
-    ai = OpenAIStrategicAdvisor(
+    live_ai = OpenAIStrategicAdvisor(
         factory, api_key=settings.openai_api_key, model=settings.openai_model,
-        timeout_seconds=settings.openai_timeout_seconds,
+        timeout_seconds=settings.openai_live_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
         prefetch_picks=settings.openai_prefetch_picks,
     )
-    return engine, factory, service, draft_id, importer, evaluator, exporter, backup_service, fp, ai
+    diagnostic_ai = OpenAIStrategicAdvisor(
+        factory, api_key=settings.openai_api_key, model=settings.openai_model,
+        timeout_seconds=settings.openai_diagnostic_timeout_seconds,
+        reasoning_effort=settings.openai_reasoning_effort,
+        prefetch_picks=settings.openai_prefetch_picks,
+    )
+    return (
+        engine, factory, service, draft_id, importer, evaluator, exporter,
+        backup_service, fp, live_ai, diagnostic_ai,
+    )
 
 
 def main() -> None:
@@ -65,7 +74,10 @@ def main() -> None:
     subparsers.add_parser("backup", help="Create a consistent SQLite database backup")
     args = parser.parse_args()
     settings = AppSettings.from_environment()
-    engine, factory, service, draft_id, importer, evaluator, exporter, backup_service, fp, ai = _services(settings)
+    (
+        engine, factory, service, draft_id, importer, evaluator, exporter,
+        backup_service, fp, _live_ai, diagnostic_ai,
+    ) = _services(settings)
     try:
         if args.command == "new-draft":
             master = load_league_config(settings.league_config_path)
@@ -108,7 +120,9 @@ def main() -> None:
                 backup_dir=settings.backup_dir,
                 backup_service=backup_service,
                 fantasypros_provider=fp if settings.fantasypros_api_key else None,
-                ai_advisor=ai if settings.openai_api_key else None,
+                ai_diagnostic_advisor=(
+                    diagnostic_ai if settings.openai_api_key else None
+                ),
                 openai_configured=bool(settings.openai_api_key),
             ).run(draft_id, live_external_checks=not args.offline)
             print(f"{report.status} — DRAFT #{draft_id}")

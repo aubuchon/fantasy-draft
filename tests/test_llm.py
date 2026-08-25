@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APITimeoutError
 
 from fantasy_draft.evaluation import (
     BaselinePlayerEvaluator,
@@ -14,6 +16,7 @@ from fantasy_draft.llm import (
     AdvisorValidationError,
     LLMAdvisorOutput,
     OpenAIStrategicAdvisor,
+    classify_openai_failure,
 )
 
 
@@ -41,7 +44,11 @@ class FakeResponses:
         assert kwargs["text_format"] is LLMAdvisorOutput
         if self.error:
             raise self.error
-        return SimpleNamespace(output_parsed=self.output)
+        return SimpleNamespace(
+            output_parsed=self.output,
+            model="gpt-5.6-sol",
+            reasoning=SimpleNamespace(effort="low"),
+        )
 
 
 def setup_state(service):
@@ -61,6 +68,8 @@ def test_valid_structured_result_is_persisted_and_cached(service):
     second = advisor.recommend(state, evaluated)
     assert first.preferred.player.id == evaluated[0].player.id
     assert first.overall_confidence == 84
+    assert first.model_used == "gpt-5.6-sol"
+    assert first.reasoning_effort == "low"
     assert second.preferred.player.id == first.preferred.player.id
     assert responses.calls == 1
 
@@ -121,3 +130,47 @@ def test_schema_rejects_invalid_categories_and_json():
             "recommendations": [], "preferred_player_id": "x",
             "overall_confidence": .5, "reason": "x", "next_pick_strategy": "x",
         })
+
+
+def test_diagnostic_bypasses_cache_and_reports_configuration(service):
+    state, evaluated, session_factory = setup_state(service)
+    responses = FakeResponses(valid_output([item.player.id for item in evaluated[:5]]))
+    advisor = OpenAIStrategicAdvisor(
+        session_factory,
+        api_key="test-value",
+        timeout_seconds=30,
+        reasoning_effort="low",
+        client=SimpleNamespace(responses=responses),
+    )
+    advisor.recommend(state, evaluated)
+    diagnostic = advisor.diagnose(state, evaluated)
+    assert responses.calls == 2
+    assert diagnostic.success is True
+    assert diagnostic.configured_model == "gpt-5.6"
+    assert diagnostic.model_used == "gpt-5.6-sol"
+    assert diagnostic.reasoning_effort == "low"
+    assert diagnostic.timeout_seconds == 30
+    assert diagnostic.max_retries == 0
+    assert diagnostic.structured_output_valid is True
+
+
+def test_timeout_diagnostic_distinguishes_read_from_connect_timeout(service):
+    state, evaluated, session_factory = setup_state(service)
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    read_error = APITimeoutError(request=request)
+    read_error.__cause__ = httpx.ReadTimeout("read timed out", request=request)
+    advisor = OpenAIStrategicAdvisor(
+        session_factory,
+        api_key="test-value",
+        timeout_seconds=30,
+        client=SimpleNamespace(responses=FakeResponses(error=read_error)),
+    )
+    diagnostic = advisor.diagnose(state, evaluated)
+    assert diagnostic.success is False
+    assert diagnostic.failure_category == "timeout.read"
+    assert diagnostic.exception_type == "APITimeoutError"
+    assert diagnostic.structured_output_valid is False
+
+    connect_error = APITimeoutError(request=request)
+    connect_error.__cause__ = httpx.ConnectTimeout("connect timed out", request=request)
+    assert classify_openai_failure(connect_error) == "timeout.connect"

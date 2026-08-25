@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from dataclasses import dataclass
 from typing import Any, Literal, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -24,6 +25,56 @@ class AdvisorUnavailable(RuntimeError):
 
 class AdvisorValidationError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class AdvisorDiagnostic:
+    success: bool
+    configured_model: str
+    model_used: str | None
+    reasoning_effort: str
+    timeout_seconds: float
+    max_retries: int
+    latency_ms: int
+    structured_output_valid: bool
+    failure_category: str | None = None
+    exception_type: str | None = None
+
+
+def classify_openai_failure(exc: Exception) -> str:
+    """Return a credential-safe, transport-specific diagnostic category."""
+    import httpx
+    from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimitError
+    from pydantic import ValidationError
+
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    timeout_types = (
+        (httpx.ConnectTimeout, "timeout.connect"),
+        (httpx.ReadTimeout, "timeout.read"),
+        (httpx.WriteTimeout, "timeout.write"),
+        (httpx.PoolTimeout, "timeout.pool"),
+    )
+    for error in chain:
+        for timeout_type, category in timeout_types:
+            if isinstance(error, timeout_type):
+                return category
+    if isinstance(exc, APITimeoutError):
+        return "timeout.unknown"
+    if isinstance(exc, RateLimitError):
+        return "api.rate_limit"
+    if isinstance(exc, APIStatusError):
+        return f"api.http_{exc.status_code}"
+    if isinstance(exc, APIConnectionError):
+        return "connection.transport"
+    if isinstance(exc, (AdvisorValidationError, ValidationError)):
+        return "structured_output.validation"
+    if isinstance(exc, AdvisorUnavailable):
+        return "configuration.unavailable"
+    return f"unexpected.{type(exc).__name__}"
 
 
 class LLMRecommendation(BaseModel):
@@ -80,6 +131,7 @@ class OpenAIStrategicAdvisor:
         self.timeout_seconds = timeout_seconds
         self.reasoning_effort = reasoning_effort
         self.prefetch_picks = prefetch_picks
+        self.max_retries = 0
         self._client = client
 
     def _candidate_packet(
@@ -143,7 +195,15 @@ class OpenAIStrategicAdvisor:
 
     def _fingerprint(self, packet: dict[str, Any]) -> str:
         return hashlib.sha256(
-            json.dumps(packet, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(
+                {
+                    "packet": packet,
+                    "model": self.model,
+                    "reasoning_effort": self.reasoning_effort,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
         ).hexdigest()
 
     def _validate_and_convert(
@@ -152,6 +212,8 @@ class OpenAIStrategicAdvisor:
         candidates: Sequence[EvaluatedPlayer],
         *,
         latency_ms: int | None,
+        model_used: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> RecommendationSet:
         by_id = {item.player.id: item.player for item in candidates}
         returned = {item.player_id for item in output.recommendations}
@@ -171,10 +233,12 @@ class OpenAIStrategicAdvisor:
             recommendations=recommendations,
             preferred=preferred,
             next_pick_strategy=output.next_pick_strategy,
-            source=f"OpenAI {self.model}",
+            source=f"OpenAI {model_used or self.model}",
             overall_confidence=round(output.overall_confidence * 100),
             reason=output.reason,
             latency_ms=latency_ms,
+            model_used=model_used or self.model,
+            reasoning_effort=reasoning_effort or self.reasoning_effort,
         )
 
     def _cached(
@@ -195,7 +259,11 @@ class OpenAIStrategicAdvisor:
                 return None
             output = LLMAdvisorOutput.model_validate(history.response)
             return self._validate_and_convert(
-                output, candidates, latency_ms=history.latency_ms
+                output,
+                candidates,
+                latency_ms=history.latency_ms,
+                model_used=history.model,
+                reasoning_effort=self.reasoning_effort,
             )
 
     def recommend(
@@ -205,6 +273,7 @@ class OpenAIStrategicAdvisor:
         *,
         force: bool = False,
         persist: bool = True,
+        use_cache: bool = True,
     ) -> RecommendationSet:
         available_ids = {player.id for player in state.available_players}
         candidates = [item for item in evaluated if item.player.id in available_ids][:20]
@@ -212,8 +281,9 @@ class OpenAIStrategicAdvisor:
             raise AdvisorUnavailable("at least five candidates are required")
         packet = self._candidate_packet(state, candidates)
         fingerprint = self._fingerprint(packet)
-        if cached := self._cached(state, fingerprint, candidates):
-            return cached
+        if use_cache:
+            if cached := self._cached(state, fingerprint, candidates):
+                return cached
         our_turn = state.current_team_id == state.config.draft.our_team_id
         if not force and not our_turn and (
             state.picks_until_user_pick is None
@@ -228,7 +298,7 @@ class OpenAIStrategicAdvisor:
             self._client = OpenAI(
                 api_key=self.api_key,
                 timeout=self.timeout_seconds,
-                max_retries=0,
+                max_retries=self.max_retries,
             )
         started = time.perf_counter()
         response = self._client.responses.parse(
@@ -253,17 +323,65 @@ class OpenAIStrategicAdvisor:
             raise AdvisorValidationError("advisor returned no structured output")
         if not isinstance(output, LLMAdvisorOutput):
             output = LLMAdvisorOutput.model_validate(output)
-        result = self._validate_and_convert(output, candidates, latency_ms=latency_ms)
+        model_used = str(getattr(response, "model", None) or self.model)
+        response_reasoning = getattr(response, "reasoning", None)
+        reasoning_effort = str(
+            getattr(response_reasoning, "effort", None) or self.reasoning_effort
+        )
+        result = self._validate_and_convert(
+            output,
+            candidates,
+            latency_ms=latency_ms,
+            model_used=model_used,
+            reasoning_effort=reasoning_effort,
+        )
         if persist:
             with self.session_factory.begin() as session:
                 session.add(RecommendationHistory(
                     draft_id=state.draft_id,
                     overall_pick=state.current_pick.overall if state.current_pick else 0,
                     source="openai",
-                    model=self.model,
+                    model=model_used,
                     request_fingerprint=fingerprint,
                     candidates=[item.player.id for item in candidates],
                     response=output.model_dump(mode="json"),
                     latency_ms=latency_ms,
                 ))
         return result
+
+    def diagnose(
+        self, state: DraftState, evaluated: Sequence[EvaluatedPlayer]
+    ) -> AdvisorDiagnostic:
+        """Make an uncached diagnostic request and return credential-safe telemetry."""
+        started = time.perf_counter()
+        try:
+            result = self.recommend(
+                state,
+                evaluated,
+                force=True,
+                persist=False,
+                use_cache=False,
+            )
+        except Exception as exc:
+            return AdvisorDiagnostic(
+                success=False,
+                configured_model=self.model,
+                model_used=None,
+                reasoning_effort=self.reasoning_effort,
+                timeout_seconds=self.timeout_seconds,
+                max_retries=self.max_retries,
+                latency_ms=round((time.perf_counter() - started) * 1000),
+                structured_output_valid=False,
+                failure_category=classify_openai_failure(exc),
+                exception_type=type(exc).__name__,
+            )
+        return AdvisorDiagnostic(
+            success=True,
+            configured_model=self.model,
+            model_used=result.model_used or self.model,
+            reasoning_effort=result.reasoning_effort or self.reasoning_effort,
+            timeout_seconds=self.timeout_seconds,
+            max_retries=self.max_retries,
+            latency_ms=result.latency_ms or round((time.perf_counter() - started) * 1000),
+            structured_output_valid=True,
+        )

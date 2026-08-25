@@ -140,13 +140,21 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         session_factory,
         api_key=settings.openai_api_key,
         model=settings.openai_model,
-        timeout_seconds=settings.openai_timeout_seconds,
+        timeout_seconds=settings.openai_live_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
         prefetch_picks=settings.openai_prefetch_picks,
     )
     advisor = ResilientStrategicAdvisor(
         openai_advisor,
         offline_advisor,
+    )
+    openai_diagnostic_advisor = OpenAIStrategicAdvisor(
+        session_factory,
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+        timeout_seconds=settings.openai_diagnostic_timeout_seconds,
+        reasoning_effort=settings.openai_reasoning_effort,
+        prefetch_picks=settings.openai_prefetch_picks,
     )
     fantasypros_provider = FantasyProsProvider(
         settings.fantasypros_api_key,
@@ -168,7 +176,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         backup_dir=settings.backup_dir,
         backup_service=backup_service,
         fantasypros_provider=fantasypros_provider if settings.fantasypros_api_key else None,
-        ai_advisor=openai_advisor if settings.openai_api_key else None,
+        ai_diagnostic_advisor=(
+            openai_diagnostic_advisor if settings.openai_api_key else None
+        ),
         openai_configured=bool(settings.openai_api_key),
     )
     templates = Jinja2Templates(directory=PROJECT_ROOT / "templates")

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from fantasy_draft.data_import import DataImportService
 from fantasy_draft.evaluation import BaselinePlayerEvaluator
 from fantasy_draft.models import Draft, DraftPick, ImportRun, PlayerExternalId, utc_now
+from fantasy_draft.llm import AdvisorDiagnostic
 from fantasy_draft.operations import DatabaseBackupService, DraftExporter
 from fantasy_draft.readiness import ReadinessService
 
@@ -80,3 +81,40 @@ def test_readiness_check_uses_isolated_draft_engine(service, tmp_path):
     assert any(check.status == "PASS" for check in report.sections["DRAFT ENGINE"])
     assert any("fallback" in check.message.lower() or "without AI" in check.message for check in report.sections["FALLBACK"])
     assert draft_service.get_state(draft_id).picks == []
+
+
+def test_readiness_reports_diagnostic_configuration_and_failure_category(service, tmp_path):
+    draft_service, draft_id, session_factory = service
+
+    class ReadTimeoutDiagnostic:
+        def diagnose(self, state, evaluated):
+            return AdvisorDiagnostic(
+                success=False,
+                configured_model="gpt-5.6",
+                model_used=None,
+                reasoning_effort="low",
+                timeout_seconds=30,
+                max_retries=0,
+                latency_ms=30011,
+                structured_output_valid=False,
+                failure_category="timeout.read",
+                exception_type="APITimeoutError",
+            )
+
+    report = ReadinessService(
+        session_factory,
+        draft_service,
+        DataImportService(session_factory, tmp_path / "cache"),
+        BaselinePlayerEvaluator(session_factory, simulations=50),
+        DraftExporter(session_factory),
+        backup_dir=tmp_path / "backups",
+        ai_diagnostic_advisor=ReadTimeoutDiagnostic(),
+        openai_configured=True,
+    ).run(draft_id, live_external_checks=True)
+    check = report.sections["AI"][0]
+    assert check.status == "WARNING"
+    assert "reasoning_effort=low" in check.detail
+    assert "timeout=30s" in check.detail
+    assert "latency=30.01s" in check.detail
+    assert "failure_category=timeout.read" in check.detail
+    assert "exception=APITimeoutError" in check.detail

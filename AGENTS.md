@@ -23,6 +23,7 @@ The current product is a fast, dependable copilot for a manually entered live fa
 - Calculate fantasy points from raw provider statistics through the snapshotted league scoring configuration. Provider generic fantasy points are informational only.
 - Preserve provider import audits, data-mode/freshness labels, source checksums/caches, and unmatched-review records. External failure must leave the last usable local data intact.
 - Validate every AI response against a strict schema and the deterministic available-candidate allowlist. Use bounded timeouts, avoid page-load API spam, and persist only validated advisory history.
+- Keep the short live-draft AI timeout separate from the longer readiness diagnostic timeout. Diagnostics must bypass live-result caches, report credential-safe latency/failure details, and never weaken immediate deterministic fallback.
 - Export and backup formats must never include secrets. Readiness checks must not mutate the selected draft.
 - Prefer small, testable deterministic functions and a single-process architecture. Avoid distributed infrastructure unless measured requirements justify it.
 

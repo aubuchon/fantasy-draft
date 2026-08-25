@@ -318,6 +318,8 @@ class RecommendationSet:
     overall_confidence: int | None = None
     reason: str | None = None
     latency_ms: int | None = None
+    model_used: str | None = None
+    reasoning_effort: str | None = None
 
 
 class StrategicAdvisor(Protocol):

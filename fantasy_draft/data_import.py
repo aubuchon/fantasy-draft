@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from fantasy_draft.identity import (
     PlayerIdentityService,
+    active_identity_duplicates,
     clean_external_id,
     fantasypros_external_ids,
 )
@@ -209,6 +210,13 @@ class DataImportService:
             run.status = "success"
             run.completed_at = utc_now()
             run.metadata_json = payload.metadata
+            reconciliation = self.identity.reconcile_authoritative_duplicates(session)
+            if reconciliation.retired_players or reconciliation.repointed_picks:
+                run.metadata_json = {
+                    **run.metadata_json,
+                    "retired_sample_duplicates": len(reconciliation.retired_players),
+                    "repointed_draft_picks": reconciliation.repointed_picks,
+                }
             return run.id
 
     def backfill_cached_player_demographics(self) -> int:
@@ -254,6 +262,10 @@ class DataImportService:
                     changed = True
                 updated += int(changed)
         return updated
+
+    def reconcile_player_identities(self):
+        with self.session_factory.begin() as session:
+            return self.identity.reconcile_authoritative_duplicates(session)
 
     def _fantasypros_player(self, session: Session, record: dict) -> Player | None:
         fpid = clean_external_id(record.get("player_id") or record.get("fpid"))
@@ -436,6 +448,7 @@ class DataImportService:
                 UnmatchedRecord.resolved_player_id.is_(None)
             )) or 0
             external_count = session.scalar(select(func.count(PlayerExternalId.id))) or 0
+            duplicates = active_identity_duplicates(session)
             return {
                 "latest": latest,
                 "unmatched": unmatched,
@@ -443,6 +456,11 @@ class DataImportService:
                 "players": session.scalar(select(func.count(Player.id))) or 0,
                 "ranked": session.scalar(select(func.count(func.distinct(PlayerRanking.player_id)))) or 0,
                 "projected": session.scalar(select(func.count(func.distinct(PlayerProjection.player_id)))) or 0,
+                "duplicate_identities": len(duplicates),
+                "duplicate_identity_names": [
+                    f"{players[0].name} ({identity[1]})"
+                    for identity, players in sorted(duplicates.items())[:20]
+                ],
                 "unmatched_records": list(session.scalars(
                     select(UnmatchedRecord)
                     .where(UnmatchedRecord.resolved_player_id.is_(None))

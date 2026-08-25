@@ -97,6 +97,8 @@ The available-player table shows provider-backed age and NFL experience. `Yr` is
 
 The DynastyProcess `db_playerids.csv` crosswalk is downloaded during refresh and cached rather than committed as a static snapshot. Source: <https://github.com/dynastyprocess/data>, GPL-3.0. Exact external IDs are matched before normalized name/position/team fallback; ambiguous records remain visible in **Data health** for review.
 
+NFL team is mutable player metadata, not identity. A unique normalized name/position fallback may follow a player across a team change; multiple matches remain unresolved. On startup and after player import, a sample-only duplicate is retired when exactly one provider-ID-backed canonical player exists, and any non-conflicting saved picks are repointed to that canonical identity. No player record or draft history is deleted. Remaining duplicate active identities are shown in **Data health**, fail the identity readiness check, and are excluded from both deterministic and OpenAI recommendations until resolved.
+
 After a successful pre-draft refresh, the current empty draft pins those import-run IDs. Data cannot be repinned after its first pick; create a new draft to use a newer snapshot. This preserves why a player was valued on draft night.
 
 ## Evaluation and AI

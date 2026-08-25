@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from fantasy_draft.config import LeagueConfig
+from fantasy_draft.identity import normalize_name
 from fantasy_draft.models import ImportRun, Player, PlayerProjection, PlayerRanking
 from fantasy_draft.scoring import score_projection
 from fantasy_draft.services import DraftState
@@ -359,7 +360,14 @@ class ResilientStrategicAdvisor:
 
 class OfflineStrategicAdvisor:
     def recommend(self, state: DraftState, evaluated: Sequence[EvaluatedPlayer]) -> RecommendationSet:
-        pool = list(evaluated[:30])
+        identity_counts = Counter(
+            (normalize_name(item.player.name), item.player.primary_position)
+            for item in evaluated
+        )
+        pool = [
+            item for item in evaluated
+            if identity_counts[(normalize_name(item.player.name), item.player.primary_position)] == 1
+        ][:30]
         if not pool:
             return RecommendationSet(
                 [],

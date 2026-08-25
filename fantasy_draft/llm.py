@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, Sequence
 
@@ -17,6 +18,7 @@ from fantasy_draft.evaluation import (
     Recommendation,
     RecommendationSet,
 )
+from fantasy_draft.identity import normalize_name
 from fantasy_draft.models import RecommendationHistory
 from fantasy_draft.services import DraftState
 
@@ -398,7 +400,15 @@ class OpenAIStrategicAdvisor:
         use_cache: bool = True,
     ) -> RecommendationSet:
         available_ids = {player.id for player in state.available_players}
-        candidates = [item for item in evaluated if item.player.id in available_ids][:20]
+        identity_counts = Counter(
+            (normalize_name(item.player.name), item.player.primary_position)
+            for item in evaluated if item.player.id in available_ids
+        )
+        candidates = [
+            item for item in evaluated
+            if item.player.id in available_ids
+            and identity_counts[(normalize_name(item.player.name), item.player.primary_position)] == 1
+        ][:20]
         if len(candidates) < 5:
             raise AdvisorUnavailable("at least five candidates are required")
         packet = self._candidate_packet(state, candidates)

@@ -21,7 +21,7 @@ from fantasy_draft.models import ImportRun, Player, PlayerExternalId, PlayerProj
 from fantasy_draft.operations import DatabaseBackupService, DraftExporter
 from fantasy_draft.providers import FantasyProsProvider
 from fantasy_draft.services import DraftService
-from fantasy_draft.identity import normalize_name
+from fantasy_draft.identity import active_identity_duplicates
 
 
 @dataclass(frozen=True)
@@ -170,21 +170,26 @@ class ReadinessService:
             matched = len(set(session.scalars(
                 select(PlayerExternalId.player_id).where(PlayerExternalId.player_id.in_(top_ids)).distinct()
             ))) if top_ids else 0
-            normalized_seen: set[tuple[str, str]] = set()
-            duplicate = False
-            for player in top:
-                identity = (normalize_name(player.name), player.primary_position)
-                if identity in normalized_seen:
-                    duplicate = True
-                    break
-                normalized_seen.add(identity)
+            duplicates = active_identity_duplicates(session)
         target = len(top)
         sections["IDENTITY"].append(Check(
             "PASS" if target >= 250 and matched == target else "WARNING",
             f"Top-{target or 0} matched: {matched}/{target or 0}.",
             f"{status['unmatched']} unresolved imported records; {status['external_ids']} external IDs stored.",
         ))
-        sections["IDENTITY"].append(Check("FAIL" if duplicate else "PASS", "No duplicate canonical name/position pairs in top ranks." if not duplicate else "Duplicate canonical players exist in top ranks."))
+        duplicate_names = [
+            f"{players[0].name} ({identity[1]}: "
+            + ", ".join(player.nfl_team or "FA" for player in players)
+            + ")"
+            for identity, players in sorted(duplicates.items())
+        ]
+        sections["IDENTITY"].append(Check(
+            "FAIL" if duplicates else "PASS",
+            "No duplicate active canonical name/position pairs."
+            if not duplicates else
+            f"{len(duplicates)} duplicate active player identities require review.",
+            "; ".join(duplicate_names[:10]),
+        ))
 
         if self.fantasypros_provider is None:
             sections["PLAYER DATA"].append(Check("WARNING", "FantasyPros key is not configured; cached local data remains usable."))

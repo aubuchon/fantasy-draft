@@ -12,6 +12,8 @@
     <p><span>Projected players</span><strong>{{ status.projected }}</strong></p>
     <p><span>External IDs</span><strong>{{ status.external_ids }}</strong></p>
     <p><span>Unmatched review</span><strong>{{ status.unmatched }}</strong></p>
+    <p><span>Duplicate active identities</span><strong>{{ status.duplicate_identities }}</strong></p>
+    {% if status.duplicate_identity_names %}<p><span>Duplicate review</span><strong>{{ status.duplicate_identity_names|join(", ") }}</strong></p>{% endif %}
     <form action="/data/refresh" method="post"><button class="button primary" type="submit" {% if not key_configured %}disabled{% endif %}>Refresh players, rankings, ADP, projections, and crosswalk</button></form>
   </div></section>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">Audited imports</p><h2>Latest datasets</h2></div></div>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -19,6 +20,7 @@ from fantasy_draft.llm import (
     OpenAIStrategicAdvisor,
     classify_openai_failure,
 )
+from fantasy_draft.models import Player
 
 
 def valid_output(ids):
@@ -42,6 +44,7 @@ class FakeResponses:
 
     def parse(self, **kwargs):
         self.calls += 1
+        self.last_kwargs = kwargs
         assert issubclass(kwargs["text_format"], LLMAdvisorOutput)
         if self.error:
             raise self.error
@@ -118,6 +121,32 @@ def test_invented_or_wrong_candidate_is_rejected(service):
     with pytest.raises(AdvisorValidationError, match="outside") as error:
         advisor.recommend(state, evaluated, force=True)
     assert error.value.category == "candidate_not_allowed"
+
+
+def test_duplicate_identity_is_never_sent_to_openai(service):
+    draft_service, draft_id, session_factory = service
+    with session_factory.begin() as session:
+        session.add(Player(
+            id="duplicate-player-1", name="Player 1", nfl_team="OLD",
+            primary_position="RB", eligible_positions=["RB"],
+            overall_rank=50, active=True,
+        ))
+    state = draft_service.get_state(draft_id)
+    evaluated = BaselinePlayerEvaluator(simulations=50).evaluate(
+        state, state.available_players
+    )
+    safe = [item for item in evaluated if item.player.name != "Player 1"][:5]
+    responses = FakeResponses(valid_output([item.player.id for item in safe]))
+    advisor = OpenAIStrategicAdvisor(
+        session_factory,
+        api_key="test-value",
+        client=SimpleNamespace(responses=responses),
+    )
+    advisor.recommend(state, evaluated, force=True)
+    packet = json.loads(responses.last_kwargs["input"][1]["content"])
+    sent_ids = {item["player_id"] for item in packet["allowed_candidates"]}
+    assert "player-1" not in sent_ids
+    assert "duplicate-player-1" not in sent_ids
 
 
 def test_drafted_player_from_stale_candidate_list_is_rejected(service):

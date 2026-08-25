@@ -204,6 +204,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         with session_factory.begin() as session:
             seed_players_if_empty(session, settings.player_data_path)
         import_service.backfill_cached_player_demographics()
+        import_service.reconcile_player_identities()
         service.get_or_create_active_draft(config)
         yield
         engine.dispose()

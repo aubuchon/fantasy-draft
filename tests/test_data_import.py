@@ -117,6 +117,66 @@ def test_cached_player_payload_backfills_new_demographic_columns(service, tmp_pa
         assert player.draft_year == 2030
 
 
+def test_unique_name_and_position_match_survives_nfl_team_change(service, tmp_path):
+    _, _, session_factory = service
+    with session_factory.begin() as session:
+        session.add(Player(
+            id="sample-traded-receiver",
+            name="A.J. Brown",
+            nfl_team="PHI",
+            primary_position="WR",
+            eligible_positions=["WR"],
+            external_ids={"sample": "31"},
+            active=True,
+        ))
+    importer = DataImportService(session_factory, tmp_path)
+    importer.import_players_payload(player_payload([{
+        "player_id": 18218,
+        "player_name": "A.J. Brown",
+        "position_id": "WR",
+        "team_id": "NE",
+        "player_yahoo_id": "31883",
+    }]))
+
+    with session_factory() as session:
+        matches = list(session.scalars(select(Player).where(Player.name == "A.J. Brown")))
+        assert len(matches) == 1
+        assert matches[0].id == "sample-traded-receiver"
+        assert matches[0].nfl_team == "NE"
+        assert matches[0].external_ids["fantasypros"] == "18218"
+
+
+def test_authoritative_identity_retires_sample_duplicate_and_preserves_pick(service, tmp_path):
+    draft_service, draft_id, session_factory = service
+    with session_factory.begin() as session:
+        session.add_all([
+            Player(
+                id="sample-aj-brown", name="A.J. Brown", nfl_team="PHI",
+                primary_position="WR", eligible_positions=["WR"],
+                external_ids={"sample": "31"}, overall_rank=13, active=True,
+            ),
+            Player(
+                id="canonical-aj-brown", name="A.J. Brown", nfl_team="NE",
+                primary_position="WR", eligible_positions=["WR"],
+                external_ids={"fantasypros": "18218"}, overall_rank=12, active=True,
+            ),
+        ])
+        session.add(PlayerExternalId(
+            player_id="canonical-aj-brown", provider="fantasypros",
+            external_id="18218", source="test", verified=True,
+        ))
+    draft_service.make_pick(draft_id, "sample-aj-brown")
+
+    result = DataImportService(session_factory, tmp_path).reconcile_player_identities()
+    assert result.retired_players == ("sample-aj-brown",)
+    assert result.repointed_picks == 1
+    with session_factory() as session:
+        assert session.get(Player, "sample-aj-brown").active is False
+    state = draft_service.get_state(draft_id)
+    assert state.picks[0].player_id == "canonical-aj-brown"
+    assert all(player.id != "sample-aj-brown" for player in state.available_players)
+
+
 def test_ambiguous_name_is_sent_to_review(service, tmp_path):
     _, _, session_factory = service
     with session_factory.begin() as session:

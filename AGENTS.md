@@ -21,6 +21,9 @@ The current product is a fast, dependable copilot for a manually entered live fa
 - Provider integrations must map external records to canonical player IDs. Do not couple the draft engine to a ranking, ADP, projection, news, or model provider.
 - Internal player IDs belong to this application. Provider IDs and player names are never canonical primary keys. Prefer exact external-ID matching; quarantine ambiguous fallback matches.
 - Store player birth date and draft year from audited provider/crosswalk fields; derive display age and experience rather than freezing time-dependent values in source code.
+- Treat NFL team as mutable metadata, not player identity. A unique name/position fallback may survive a team change, but ambiguous identities must remain quarantined.
+- Retire a fallback duplicate automatically only when it is sample-only and exactly one provider-ID-backed canonical identity exists. Preserve or safely repoint draft history; never silently merge competing authoritative identities.
+- Exclude unresolved duplicate identities from deterministic and LLM recommendations, expose them in data health, and fail the readiness identity check until resolved.
 - Calculate fantasy points from raw provider statistics through the snapshotted league scoring configuration. Provider generic fantasy points are informational only.
 - Preserve provider import audits, data-mode/freshness labels, source checksums/caches, and unmatched-review records. External failure must leave the last usable local data intact.
 - Validate every AI response against a strict schema and the deterministic available-candidate allowlist. Use bounded timeouts, avoid page-load API spam, and persist only validated advisory history.

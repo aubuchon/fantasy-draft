@@ -29,6 +29,7 @@ def _services(settings: AppSettings):
     draft_id = service.get_or_create_active_draft(load_league_config(settings.league_config_path))
     importer = DataImportService(factory, settings.cache_dir, data_mode=settings.fantasypros_data_mode)
     importer.backfill_cached_player_demographics()
+    importer.reconcile_player_identities()
     evaluator = BaselinePlayerEvaluator(factory, simulations=settings.survival_simulations)
     exporter = DraftExporter(factory)
     backup_service = DatabaseBackupService(engine, settings.backup_dir)

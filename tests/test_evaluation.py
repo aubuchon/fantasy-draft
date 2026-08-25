@@ -9,6 +9,7 @@ from fantasy_draft.evaluation import (
 )
 from fantasy_draft.config import LeagueConfig, configure_draft_session
 from fantasy_draft.engine import next_pick_for_team
+from fantasy_draft.models import Player
 
 
 class FailingAdvisor:
@@ -39,6 +40,28 @@ def test_failed_advisor_falls_back_without_affecting_state(service):
     assert result.is_fallback is True
     assert result.fallback_reason == "AI request failed (TimeoutError)."
     assert draft_service.get_state(draft_id).picks == []
+
+
+def test_deterministic_advisor_excludes_duplicate_player_identities(service):
+    draft_service, draft_id, session_factory = service
+    with session_factory.begin() as session:
+        session.add(Player(
+            id="duplicate-player-1",
+            name="Player 1",
+            nfl_team="OLD",
+            primary_position="RB",
+            eligible_positions=["RB"],
+            overall_rank=50,
+            active=True,
+        ))
+    state = draft_service.get_state(draft_id)
+    evaluated = BaselinePlayerEvaluator(simulations=50).evaluate(
+        state, state.available_players
+    )
+    result = OfflineStrategicAdvisor().recommend(state, evaluated)
+    recommendation_ids = {item.player.id for item in result.recommendations}
+    assert "player-1" not in recommendation_ids
+    assert "duplicate-player-1" not in recommendation_ids
 
 
 def test_replacement_level_reacts_to_team_count_and_starters(league_config):

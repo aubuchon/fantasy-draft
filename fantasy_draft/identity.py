@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import defaultdict
 from dataclasses import dataclass
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from fantasy_draft.models import Player, PlayerExternalId
+from fantasy_draft.models import DraftPick, Player, PlayerExternalId
 
 
 ID_PRIORITY = ("fantasypros", "yahoo", "gsis", "nfl", "espn", "sleeper", "cbs", "sportsdata")
@@ -56,6 +57,20 @@ class MatchResult:
     ambiguous: bool = False
 
 
+@dataclass(frozen=True)
+class ReconciliationResult:
+    retired_players: tuple[str, ...] = ()
+    repointed_picks: int = 0
+    conflicts: tuple[str, ...] = ()
+
+
+def active_identity_duplicates(session: Session) -> dict[tuple[str, str], list[Player]]:
+    grouped: dict[tuple[str, str], list[Player]] = defaultdict(list)
+    for player in session.scalars(select(Player).where(Player.active.is_(True))):
+        grouped[(normalize_name(player.name), player.primary_position)].append(player)
+    return {identity: players for identity, players in grouped.items() if len(players) > 1}
+
+
 class PlayerIdentityService:
     def match(
         self,
@@ -86,16 +101,82 @@ class PlayerIdentityService:
             return MatchResult(None, "conflicting-exact-ids", True)
         if not name or not position:
             return MatchResult(None, "insufficient-fields")
-        candidates = list(session.scalars(select(Player).where(Player.primary_position == position)))
+        candidates = list(session.scalars(select(Player).where(
+            Player.primary_position == position,
+            Player.active.is_(True),
+        )))
         normalized = normalize_name(name)
-        matches = [
+        name_matches = [
             player for player in candidates
             if normalize_name(player.name) == normalized
-            and (not team or not player.nfl_team or player.nfl_team == team)
         ]
-        if len(matches) == 1:
-            return MatchResult(matches[0], "name-position-team")
-        return MatchResult(None, "ambiguous-name" if len(matches) > 1 else "no-match", len(matches) > 1)
+        if len(name_matches) == 1:
+            player = name_matches[0]
+            same_team = not team or not player.nfl_team or player.nfl_team == team
+            providers = set((player.external_ids or {}).keys())
+            sample_fallback = player.id.startswith("sample-") or providers == {"sample"}
+            if same_team:
+                return MatchResult(player, "name-position-team")
+            if sample_fallback:
+                return MatchResult(player, "name-position-team-change")
+            return MatchResult(None, "team-conflict")
+        team_matches = [
+            player for player in name_matches
+            if not team or not player.nfl_team or player.nfl_team == team
+        ]
+        if len(team_matches) == 1:
+            return MatchResult(team_matches[0], "name-position-team")
+        ambiguous = len(name_matches) > 1
+        return MatchResult(None, "ambiguous-name" if ambiguous else "no-match", ambiguous)
+
+    def reconcile_authoritative_duplicates(self, session: Session) -> ReconciliationResult:
+        """Retire only safe sample fallbacks superseded by one provider-backed identity."""
+        providers_by_player: dict[str, set[str]] = defaultdict(set)
+        for external in session.scalars(select(PlayerExternalId)):
+            providers_by_player[external.player_id].add(external.provider)
+
+        retired: list[str] = []
+        conflicts: list[str] = []
+        repointed = 0
+        for identity, players in active_identity_duplicates(session).items():
+            def providers(player: Player) -> set[str]:
+                return providers_by_player[player.id] | set((player.external_ids or {}).keys())
+
+            authoritative = [
+                player for player in players if providers(player).intersection(ID_PRIORITY)
+            ]
+            fallbacks = [
+                player for player in players
+                if player not in authoritative
+                and (player.id.startswith("sample-") or providers(player) == {"sample"})
+            ]
+            if len(authoritative) != 1:
+                continue
+            canonical = authoritative[0]
+            canonical_drafts = set(session.scalars(
+                select(DraftPick.draft_id).where(DraftPick.player_id == canonical.id)
+            ))
+            for fallback in fallbacks:
+                fallback_drafts = set(session.scalars(
+                    select(DraftPick.draft_id).where(DraftPick.player_id == fallback.id)
+                ))
+                overlapping = canonical_drafts.intersection(fallback_drafts)
+                if overlapping:
+                    conflicts.append(
+                        f"{identity[0]} ({identity[1]}) is duplicated in draft(s) "
+                        + ", ".join(str(value) for value in sorted(overlapping))
+                    )
+                    continue
+                result = session.execute(
+                    update(DraftPick)
+                    .where(DraftPick.player_id == fallback.id)
+                    .values(player_id=canonical.id)
+                )
+                repointed += result.rowcount or 0
+                fallback.active = False
+                retired.append(fallback.id)
+                canonical_drafts.update(fallback_drafts)
+        return ReconciliationResult(tuple(retired), repointed, tuple(conflicts))
 
     def create_player(self, session: Session, *, name: str, position: str, team: str | None) -> Player:
         player = Player(

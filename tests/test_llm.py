@@ -102,6 +102,21 @@ def test_valid_structured_result_is_persisted_and_cached(service):
     assert responses.calls == 1
 
 
+def test_cache_is_specific_to_selected_model(service):
+    state, evaluated, session_factory = setup_state(service)
+    responses = FakeResponses(valid_output([item.player.id for item in evaluated[:5]]))
+    advisor = OpenAIStrategicAdvisor(
+        session_factory,
+        api_key="test-value",
+        model="gpt-5.6-luna",
+        client=SimpleNamespace(responses=responses),
+    )
+    advisor.recommend(state, evaluated, force=True)
+    advisor.model = "gpt-5.6-terra"
+    advisor.recommend(state, evaluated, force=True)
+    assert responses.calls == 2
+
+
 def test_missing_key_uses_no_network(service):
     state, evaluated, session_factory = setup_state(service)
     with pytest.raises(AdvisorUnavailable, match="OPENAI_API_KEY"):

@@ -131,6 +131,9 @@ class ApplicationState(Base):
     current_draft_id: Mapped[int | None] = mapped_column(
         ForeignKey("drafts.id", ondelete="SET NULL"), nullable=True
     )
+    selected_openai_model: Mapped[str | None] = mapped_column(
+        String(80), nullable=True
+    )
 
 
 class ImportRun(Base):

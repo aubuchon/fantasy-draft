@@ -162,6 +162,20 @@ class DraftService:
             state = session.get(ApplicationState, 1)
             return state.current_draft_id if state else None
 
+    def selected_openai_model(self) -> str | None:
+        with self.session_factory() as session:
+            state = session.get(ApplicationState, 1)
+            return state.selected_openai_model if state else None
+
+    def select_openai_model(self, model: str) -> None:
+        """Persist the live advisor model independently of draft state."""
+        with self.session_factory.begin() as session:
+            state = session.get(ApplicationState, 1)
+            if state is None:
+                session.add(ApplicationState(id=1, selected_openai_model=model))
+            else:
+                state.selected_openai_model = model
+
     def list_drafts(self) -> list[Draft]:
         with self.session_factory() as session:
             drafts = list(session.scalars(select(Draft).order_by(Draft.created_at.desc(), Draft.id.desc())))

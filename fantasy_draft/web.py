@@ -208,6 +208,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         import_service.backfill_cached_player_demographics()
         import_service.reconcile_player_identities()
         service.get_or_create_active_draft(config)
+        selected_model = service.selected_openai_model()
+        if selected_model not in settings.openai_live_models:
+            selected_model = settings.openai_model
+            service.select_openai_model(selected_model)
+        openai_advisor.model = selected_model
         yield
         engine.dispose()
 
@@ -222,6 +227,14 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def active_draft_id() -> int:
         config = load_league_config(settings.league_config_path)
         return service.get_or_create_active_draft(config)
+
+    def selected_live_model() -> str:
+        selected = service.selected_openai_model()
+        return (
+            selected
+            if selected in settings.openai_live_models
+            else settings.openai_model
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard(
@@ -247,6 +260,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             }
             available.sort(key=lambda player: (keys[sort](player), player.name))
         with advisor_lock:
+            openai_advisor.model = selected_live_model()
             recommendations = advisor.recommend(state, evaluated)
         teams = sorted(state.config.teams, key=lambda team: team.draft_slot)
         pick_lookup = {(pick.round_number, pick.team_id): pick for pick in state.picks}
@@ -301,7 +315,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "drafts": service.list_drafts(),
                 "evaluation_by_id": evaluation_by_id,
                 "openai_models": settings.openai_live_models,
-                "active_openai_model": openai_advisor.model,
+                "active_openai_model": selected_live_model(),
             },
         )
 
@@ -452,10 +466,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if model not in settings.openai_live_models:
             return _redirect(error="That AI model is not enabled for live drafting.")
         state = service.get_state(active_draft_id())
-        if state.current_team_id != state.config.draft.our_team_id:
-            return _redirect(
-                error="AI requests are available only while our team is on the clock."
-            )
+        service.select_openai_model(model)
         evaluated = evaluator.evaluate(state, state.available_players)
         try:
             with advisor_lock:
@@ -481,6 +492,24 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                     "remain active. Choose another model or try again."
                 )
             )
+
+    @app.post("/advisor/model")
+    def select_advisor_model(request: Request, model: str = Form()):
+        if model not in settings.openai_live_models:
+            if "application/json" in request.headers.get("accept", ""):
+                raise HTTPException(
+                    status_code=400,
+                    detail="That AI model is not enabled for live drafting.",
+                )
+            return _redirect(error="That AI model is not enabled for live drafting.")
+        service.select_openai_model(model)
+        with advisor_lock:
+            openai_advisor.model = model
+        if "application/json" in request.headers.get("accept", ""):
+            return {"model": model, "status": "selected"}
+        return _redirect(
+            message=f"{model} selected for the next automatic or manual AI request."
+        )
 
     @app.get("/drafts/{draft_id}/export.json")
     def export_json(draft_id: int):
@@ -529,6 +558,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         state = service.get_state(active_draft_id())
         evaluated = evaluator.evaluate(state, state.available_players)
         with advisor_lock:
+            openai_advisor.model = selected_live_model()
             recommendations = advisor.recommend(state, evaluated)
         return _state_payload(state, recommendations, evaluated)
 

@@ -90,15 +90,20 @@
       {% if recommendations.configured_model %}<small>Attempted {{ recommendations.configured_model }} · {{ recommendations.reasoning_effort or "configured" }} reasoning · {{ "%g"|format(recommendations.configured_timeout_seconds) }}s timeout</small>{% endif %}
     </div>
     {% endif %}
-    {% if state.draft_status == "active" and state.current_team_id == state.config.draft.our_team_id %}
-    <form class="advisor-controls" action="/advisor/retry" method="post" data-ai-retry-form>
-      <label><span>AI model</span><select name="model">
+    {% if state.draft_status == "active" %}
+    <div class="advisor-controls">
+      <form action="/advisor/model" method="post" data-ai-model-form>
+      <label><span>AI model</span><select name="model" onchange="this.form.requestSubmit()">
         {% for model in openai_models %}<option value="{{ model }}" {% if model == active_openai_model %}selected{% endif %}>{{ model }}</option>{% endfor %}
       </select></label>
+      <span class="ai-model-status" data-ai-model-status aria-live="polite"></span>
+      </form>
+      <form action="/advisor/retry" method="post" data-ai-retry-form>
+      <input type="hidden" name="model" value="{{ active_openai_model }}" data-ai-retry-model>
       <button class="button" type="submit">{% if recommendations.is_fallback %}Try AI again{% else %}Re-run AI{% endif %}</button>
-    </form>
-    {% else %}
-    <p class="ai-trigger-note">AI will make one automatic request after the pick immediately before ours is saved.</p>
+      </form>
+    </div>
+    <p class="ai-trigger-note">Run the selected model manually at any time. It also runs automatically once, immediately after the pick before ours is saved.</p>
     {% endif %}
     {% if state.config.strategy.rookie_late_round_bonus or state.config.strategy.preferred_nfl_team_bonuses %}
     <p class="ai-trigger-note">Active tie-breakers: late-round rookies up to +{{ "%g"|format(state.config.strategy.rookie_late_round_bonus) }}{% for team, bonus in state.config.strategy.preferred_nfl_team_bonuses.items() %} · {{ team }} +{{ "%g"|format(bonus) }}{% endfor %}</p>

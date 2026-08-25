@@ -131,7 +131,7 @@ Live and diagnostic latency budgets are deliberately separate. `OPENAI_LIVE_TIME
 
 `gpt-5.6-terra` with `low` reasoning is the recommended live-draft balance. Use `gpt-5.6-luna` if the lowest latency and cost matter more than analysis quality. The `gpt-5.6` alias selects flagship `gpt-5.6-sol`; reserve it for offline analysis or testing because it is a poorer fit for a hard live clock.
 
-While our team is on the clock, the recommendation panel provides a server-side model selector and **Try AI again**/**Re-run AI** button. Switching models changes only subsequent advisory requests; deterministic draft state is unaffected. The enabled choices come from `OPENAI_LIVE_MODELS`. A manual retry is the only way to repeat a failed request for unchanged draft state.
+The recommendation panel always provides a server-side model selector and **Try AI again**/**Re-run AI** button during an active draft. The selected model is persisted and is authoritative for the next automatic or manual request. You may manually recalculate before our turn—for example, try Sol two picks early, then select Terra for the automatic request after the pick immediately before ours. Switching models never changes deterministic draft state. Model is part of the request-cache fingerprint, so one model's cached result or timeout cannot suppress a different selected model. The enabled choices come from `OPENAI_LIVE_MODELS`; an explicit retry bypasses both successful and failed caches for the unchanged draft state.
 
 ## Readiness, export, and backup
 

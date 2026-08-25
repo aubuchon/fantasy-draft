@@ -93,6 +93,13 @@ def test_strategy_preferences_can_update_without_changing_picks(service):
     assert state.config.strategy.preferred_nfl_team_bonuses == {"CHI": 1}
 
 
+def test_selected_openai_model_persists_across_service_instances(service):
+    draft_service, _, session_factory = service
+    draft_service.select_openai_model("gpt-5.6-terra")
+    reloaded = DraftService(session_factory)
+    assert reloaded.selected_openai_model() == "gpt-5.6-terra"
+
+
 def test_failed_pick_is_atomic(service):
     draft_service, draft_id, session_factory = service
     draft_service.make_pick(draft_id, "player-1")

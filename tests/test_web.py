@@ -17,9 +17,11 @@ class SequencedResponses:
     def __init__(self):
         self.calls = 0
         self.fail_next = True
+        self.models = []
 
     def parse(self, **kwargs):
         self.calls += 1
+        self.models.append(kwargs["model"])
         if self.fail_next:
             self.fail_next = False
             raise TimeoutError("simulated live timeout")
@@ -74,6 +76,8 @@ def test_live_draft_web_and_api_flow(tmp_path):
         assert "Josh Allen" in response.text
         assert "AI FALLBACK ACTIVE" in response.text
         assert "deterministic quantitative recommendations" in response.text
+        assert "data-ai-model-form" in response.text
+        assert "Run the selected model manually at any time" in response.text
         assert "data-instant-pick-form" in response.text
         assert "data-pick-form" not in response.text
         assert "/static/app.js?v=" in response.text
@@ -92,6 +96,8 @@ def test_live_draft_web_and_api_flow(tmp_path):
         assert "Draft ${name} with the current pick?" not in script
         assert '[data-instant-pick-form]' in script
         assert 'button.textContent = "Saving…"' in script
+        assert '[data-ai-model-form]' in script
+        assert 'headers: { Accept: "application/json" }' in script
 
         created = client.post("/api/picks", json={"player_id": "sample-bijan-robinson"})
         assert created.status_code == 201
@@ -237,3 +243,72 @@ def test_ai_runs_once_on_our_turn_then_allows_model_retry(tmp_path):
 
         client.get("/")
         assert responses.calls == 2
+
+
+def test_manual_ai_before_our_turn_and_selected_model_drives_automatic_call(
+    tmp_path,
+):
+    root = Path(__file__).parents[1]
+    settings = AppSettings(
+        league_config_path=root / "config" / "league.yaml",
+        database_url=f"sqlite:///{tmp_path / 'early-advisor-web.db'}",
+        player_data_path=root / "data" / "players.csv",
+        openai_api_key="test-value",
+        survival_simulations=50,
+    )
+    app = create_app(settings)
+    responses = SequencedResponses()
+    responses.fail_next = False
+    app.state.openai_advisor._client = SimpleNamespace(responses=responses)
+
+    with TestClient(app) as client:
+        service = app.state.draft_service
+        master = load_league_config(settings.league_config_path)
+        config = configure_draft_session(
+            master,
+            team_count=master.league.team_count,
+            our_draft_slot=3,
+        )
+        draft_id = service.create_draft(config, name="Early advisor test")
+        state = service.get_state(draft_id)
+        assert state.picks_until_user_pick == 2
+
+        early = client.post(
+            "/advisor/retry",
+            data={"model": "gpt-5.6-sol"},
+            follow_redirects=True,
+        )
+        assert early.status_code == 200
+        assert "OpenAI gpt-5.6-sol" in early.text
+        assert responses.models == ["gpt-5.6-sol"]
+
+        selected = client.post(
+            "/advisor/model",
+            data={"model": "gpt-5.6-terra"},
+            headers={"Accept": "application/json"},
+        )
+        assert selected.json() == {
+            "model": "gpt-5.6-terra",
+            "status": "selected",
+        }
+        assert service.selected_openai_model() == "gpt-5.6-terra"
+        assert responses.calls == 1
+
+        state = service.get_state(draft_id)
+        first_pick = client.post(
+            "/picks",
+            data={"player_id": state.available_players[0].id},
+            follow_redirects=True,
+        )
+        assert first_pick.status_code == 200
+        assert responses.calls == 1
+
+        state = service.get_state(draft_id)
+        preceding_pick = client.post(
+            "/picks",
+            data={"player_id": state.available_players[0].id},
+            follow_redirects=True,
+        )
+        assert preceding_pick.status_code == 200
+        assert responses.models == ["gpt-5.6-sol", "gpt-5.6-terra"]
+        assert "OpenAI gpt-5.6-terra" in preceding_pick.text

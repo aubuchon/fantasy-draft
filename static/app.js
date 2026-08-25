@@ -30,6 +30,34 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  document.querySelectorAll("[data-ai-model-form]").forEach((form) => {
+    const select = form.querySelector("select[name='model']");
+    const status = form.querySelector("[data-ai-model-status]");
+    let savedModel = select?.value;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!select) return;
+      const requestedModel = select.value;
+      if (status) status.textContent = "Saving…";
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          body: new FormData(form),
+        });
+        if (!response.ok) throw new Error("model selection failed");
+        savedModel = requestedModel;
+        document.querySelectorAll("[data-ai-retry-model]").forEach((input) => {
+          input.value = requestedModel;
+        });
+        if (status) status.textContent = `${requestedModel} selected`;
+      } catch (_error) {
+        select.value = savedModel;
+        if (status) status.textContent = "Could not save model";
+      }
+    });
+  });
+
   const correctionForm = document.querySelector("#correction-form");
   const correctionPick = document.querySelector("#correction-pick");
   correctionForm?.addEventListener("submit", (event) => {

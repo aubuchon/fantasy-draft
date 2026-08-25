@@ -8,7 +8,7 @@ from sqlalchemy import Engine, inspect, text
 from fantasy_draft.database import Base
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _columns(engine: Engine, table: str) -> set[str]:
@@ -41,6 +41,7 @@ def run_migrations(engine: Engine) -> None:
     _add_column(engine, "players", "draft_year INTEGER")
     _add_column(engine, "draft_picks", "market_adp FLOAT")
     _add_column(engine, "draft_picks", "market_rank FLOAT")
+    _add_column(engine, "application_state", "selected_openai_model VARCHAR(80)")
 
     with engine.begin() as connection:
         connection.execute(

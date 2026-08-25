@@ -43,6 +43,7 @@ The current product is a fast, dependable copilot for a manually entered live fa
 - Make destructive/corrective actions explicit and easy to verify.
 - Preserve manual fallbacks for all external-data and AI features.
 - Automatically call the live advisor only after the preceding pick puts our team on the clock. Cache success and safe failure markers for unchanged state; repeat requests require an explicit user retry.
+- Persist the user-selected live model and make it authoritative for the next automatic request. Allow explicit manual recalculation before our turn; model-specific fingerprints must keep one model's cached result or failure from suppressing another model.
 - Give the LLM a curated, roster-aware candidate set and every team roster. Deterministic code evaluates the full available pool; do not flood the model with the entire player database or starve it of required-position candidates.
 
 ## Change discipline

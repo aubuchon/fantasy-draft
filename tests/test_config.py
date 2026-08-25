@@ -36,6 +36,20 @@ def test_roster_rules_change_without_source_changes(league_config):
     raw["roster"]["slots"] = [
         slot for slot in raw["roster"]["slots"] if slot["code"] != "K"
     ]
+    raw["strategy"]["max_roster_counts"].pop("K")
+    raw["strategy"]["position_target_rounds"].pop("K")
     changed = LeagueConfig.model_validate(raw)
     assert changed.roster.draftable_size == 16
     assert changed.draft.rounds == 16
+
+
+def test_strategy_positions_and_target_rounds_are_validated(league_config):
+    raw = league_config.model_dump()
+    raw["strategy"]["position_target_rounds"]["K"] = 18
+    with pytest.raises(ValidationError, match="cannot exceed draft rounds"):
+        LeagueConfig.model_validate(raw)
+
+    raw = league_config.model_dump()
+    raw["strategy"]["max_roster_counts"]["PUNTER"] = 1
+    with pytest.raises(ValidationError, match="unknown positions"):
+        LeagueConfig.model_validate(raw)

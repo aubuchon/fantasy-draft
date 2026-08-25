@@ -167,9 +167,26 @@ def select_advisor_candidates(
     )
     capacity = _starting_capacity(state.config)
     needed = _needed_positions(state)
+    current_round = (
+        state.current_pick.round_number
+        if getattr(state, "current_pick", None) is not None
+        else 1
+    )
     position_caps = {
         position: (
-            3 if position in needed
+            0
+            if (
+                (maximum := state.config.strategy.max_roster_counts.get(position))
+                is not None
+                and roster_counts[position] >= maximum
+            )
+            else 1
+            if (
+                (target := state.config.strategy.position_target_rounds.get(position))
+                is not None
+                and current_round < target
+            )
+            else 3 if position in needed
             else 2 if roster_counts[position] > capacity[position]
             else 3 if roster_counts[position] == capacity[position]
             else 4
@@ -206,6 +223,7 @@ def calculate_preference_adjustment(
     *,
     season: int | None,
     draft_progress: float,
+    current_round: int | None = None,
 ) -> float:
     market_rank = metrics.ecr or metrics.adp or 250.0
     rookie_quality = max(
@@ -220,7 +238,14 @@ def calculate_preference_adjustment(
     team_bonus = config.strategy.preferred_nfl_team_bonuses.get(
         (player.nfl_team or "").upper(), 0.0
     )
-    return rookie_bonus + team_bonus
+    target_round = config.strategy.position_target_rounds.get(player.primary_position)
+    timing_penalty = (
+        config.strategy.early_position_round_penalty
+        * max(0, target_round - current_round)
+        if target_round is not None and current_round is not None
+        else 0.0
+    )
+    return rookie_bonus + team_bonus - timing_penalty
 
 
 def calculate_tiers(
@@ -444,6 +469,7 @@ class BaselinePlayerEvaluator:
                 metric,
                 season=state.season,
                 draft_progress=progress,
+                current_round=state.current_pick.round_number if state.current_pick else None,
             )
             score = (
                 vors[player.id] * 1.6 * vor_utility

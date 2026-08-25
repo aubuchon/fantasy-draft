@@ -114,9 +114,12 @@ strategy:
   required_starter_bonus: 24.0
   surplus_position_penalty: 18.0
   replacement_bench_fraction: 0.5
+  max_roster_counts: {K: 1, DEF: 1}
+  position_target_rounds: {K: 17, DEF: 16}
+  early_position_round_penalty: 8.0
 ```
 
-Rookie preference grows quadratically through the draft and is scaled by upside/market quality. Preferred-team bonuses remain small additive tie-breakers. New drafts snapshot the master YAML. To explicitly apply only the master strategy section to the selected setup/active draft without changing picks or league rules:
+Rookie preference grows quadratically through the draft and is scaled by upside/market quality. Preferred-team bonuses remain small additive tie-breakers. `max_roster_counts` is a deterministic hard guard for our team only; it does not constrain opponents. `position_target_rounds` is a soft advisory plan: before a target round the evaluator applies `early_position_round_penalty` per round and keeps one candidate visible for emergencies, while the target position becomes fully eligible in its planned round. Required roster slots still determine legality, so a configured K round 17 and DEF round 16 remain legal and cannot be crowded out by excess bench depth. New drafts snapshot the master YAML. To explicitly apply only the master strategy section to the selected setup/active draft without changing picks or league rules:
 
 ```bash
 .venv/bin/fantasy-draft-ops apply-master-strategy

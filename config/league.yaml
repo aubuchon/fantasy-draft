@@ -46,6 +46,9 @@ strategy:
   required_starter_bonus: 24.0
   surplus_position_penalty: 18.0
   replacement_bench_fraction: 0.5
+  max_roster_counts: {K: 1, DEF: 1}
+  position_target_rounds: {K: 17, DEF: 16}
+  early_position_round_penalty: 8.0
 
 scoring:
   fractional_points: true

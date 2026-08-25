@@ -123,6 +123,7 @@ def test_advisor_allowlist_includes_needs_and_caps_surplus_position(service):
         config=original.config,
         team_needs={our_team: ["TE"]},
         picks=qb_roster,
+        current_pick=SimpleNamespace(round_number=12),
     )
 
     def item(player_id, name, position, score):
@@ -145,11 +146,19 @@ def test_advisor_allowlist_includes_needs_and_caps_surplus_position(service):
     ] + [
         item(f"te-{index}", f"Tight End {index}", "TE", 100 - index)
         for index in range(5)
+    ] + [
+        item(f"k-{index}", f"Kicker {index}", "K", 90 - index)
+        for index in range(5)
+    ] + [
+        item(f"def-{index}", f"Defense {index}", "DEF", 80 - index)
+        for index in range(5)
     ]
-    selected = select_advisor_candidates(state, evaluated, limit=10)
+    selected = select_advisor_candidates(state, evaluated, limit=20)
     counts = Counter(candidate.player.primary_position for candidate in selected)
     assert counts["QB"] == 2
     assert counts["TE"] >= 3
+    assert counts["K"] == 1
+    assert counts["DEF"] == 1
 
 
 def test_rookie_bias_grows_late_and_team_bias_stays_small(league_config):
@@ -164,14 +173,32 @@ def test_rookie_bias_grows_late_and_team_bias_stays_small(league_config):
     )
     metrics = PlayerMetrics(180, 100, 105, 2, 8)
     early = calculate_preference_adjustment(
-        config, rookie, metrics, season=2026, draft_progress=.2
+        config, rookie, metrics, season=2026, draft_progress=.2, current_round=3
     )
     late = calculate_preference_adjustment(
-        config, rookie, metrics, season=2026, draft_progress=.8
+        config, rookie, metrics, season=2026, draft_progress=.8, current_round=14
     )
     assert late > early
     assert early >= 1.0
     assert late <= 5.0
+
+
+def test_position_target_round_is_soft_but_penalizes_early_selection(league_config):
+    kicker = Player(
+        id="kicker", name="Kicker", primary_position="K",
+        eligible_positions=["K"], active=True,
+    )
+    metrics = PlayerMetrics(130, 150, 155, 1, 8)
+    early = calculate_preference_adjustment(
+        league_config, kicker, metrics,
+        season=2026, draft_progress=.7, current_round=12,
+    )
+    on_target = calculate_preference_adjustment(
+        league_config, kicker, metrics,
+        season=2026, draft_progress=1, current_round=17,
+    )
+    assert early == -40
+    assert on_target == 0
 
 
 def test_calculated_tiers_expose_large_projection_cliff():

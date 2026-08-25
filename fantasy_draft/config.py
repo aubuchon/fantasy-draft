@@ -60,6 +60,9 @@ class StrategyPreferences(StrictModel):
     required_starter_bonus: float = Field(default=24.0, ge=0, le=100)
     surplus_position_penalty: float = Field(default=18.0, ge=0, le=100)
     replacement_bench_fraction: float = Field(default=0.5, ge=0, le=1)
+    max_roster_counts: dict[str, int] = Field(default_factory=dict)
+    position_target_rounds: dict[str, int] = Field(default_factory=dict)
+    early_position_round_penalty: float = Field(default=8.0, ge=0, le=50)
 
     @model_validator(mode="after")
     def validate_team_bonuses(self) -> "StrategyPreferences":
@@ -67,6 +70,17 @@ class StrategyPreferences(StrictModel):
         if any(not team or value < 0 or value > 10 for team, value in normalized.items()):
             raise ValueError("preferred NFL team bonuses must be between 0 and 10")
         self.preferred_nfl_team_bonuses = normalized
+        self.max_roster_counts = {
+            position.upper(): count for position, count in self.max_roster_counts.items()
+        }
+        self.position_target_rounds = {
+            position.upper(): round_number
+            for position, round_number in self.position_target_rounds.items()
+        }
+        if any(count < 1 or count > 40 for count in self.max_roster_counts.values()):
+            raise ValueError("maximum roster counts must be between 1 and 40")
+        if any(round_number < 1 for round_number in self.position_target_rounds.values()):
+            raise ValueError("position target rounds must be positive")
         return self
 
 
@@ -101,6 +115,36 @@ class LeagueConfig(StrictModel):
             raise ValueError("roster slot codes must be unique")
         if any(slot.starter and not slot.draftable for slot in self.roster.slots):
             raise ValueError("non-draftable roster slots cannot be starting slots")
+        positions = {
+            position
+            for slot in self.roster.slots if slot.draftable
+            for position in slot.eligible_positions
+        }
+        strategy_positions = (
+            set(self.strategy.max_roster_counts)
+            | set(self.strategy.position_target_rounds)
+        )
+        if unknown := strategy_positions - positions:
+            raise ValueError(f"strategy references unknown positions: {sorted(unknown)}")
+        if any(
+            round_number > self.draft.rounds
+            for round_number in self.strategy.position_target_rounds.values()
+        ):
+            raise ValueError("position target rounds cannot exceed draft rounds")
+        required_by_position = {
+            position: sum(
+                slot.count
+                for slot in self.roster.slots
+                if slot.starter and slot.draftable
+                and slot.eligible_positions == [position]
+            )
+            for position in positions
+        }
+        if any(
+            maximum < required_by_position[position]
+            for position, maximum in self.strategy.max_roster_counts.items()
+        ):
+            raise ValueError("maximum roster count cannot be below required starters")
         return self
 
     def team_by_id(self, team_id: str) -> TeamConfig:

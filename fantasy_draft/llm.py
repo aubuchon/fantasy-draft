@@ -466,7 +466,8 @@ class OpenAIStrategicAdvisor:
                             "positions, required unfilled starters, and next-pick availability. Apply "
                             "configured rookie/team preferences only as small tie-breakers. Do not fill "
                             "all five categories with a surplus position when a viable required-starter "
-                            "candidate is allowed. Be terse and never propose a roster mutation."
+                            "candidate is allowed. Honor configured maximum roster counts and target "
+                            "rounds. Be terse and never propose a roster mutation."
                         ),
                     },
                     {"role": "user", "content": json.dumps(packet, separators=(",", ":"))},

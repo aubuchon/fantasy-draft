@@ -103,6 +103,9 @@
     {% if state.config.strategy.rookie_late_round_bonus or state.config.strategy.preferred_nfl_team_bonuses %}
     <p class="ai-trigger-note">Active tie-breakers: late-round rookies up to +{{ "%g"|format(state.config.strategy.rookie_late_round_bonus) }}{% for team, bonus in state.config.strategy.preferred_nfl_team_bonuses.items() %} · {{ team }} +{{ "%g"|format(bonus) }}{% endfor %}</p>
     {% endif %}
+    {% if state.config.strategy.position_target_rounds %}
+    <p class="ai-trigger-note">Position plan:{% for position, round_number in state.config.strategy.position_target_rounds.items() %} {{ position }} round {{ round_number }}{% if state.config.strategy.max_roster_counts.get(position) %} · max {{ state.config.strategy.max_roster_counts[position] }}{% endif %}{% if not loop.last %} ·{% endif %}{% endfor %}. Target rounds are preferences; roster maximums are enforced.</p>
+    {% endif %}
     {% if recommendations.preferred %}
     <div class="preferred"><span>Recommendation</span><strong>{{ recommendations.preferred.player.name }}</strong><small>{{ recommendations.overall_confidence or recommendations.preferred.confidence }}% confidence{% if recommendations.latency_ms %} · {{ recommendations.latency_ms }} ms{% endif %}</small>{% if recommendations.reason %}<p>{{ recommendations.reason }}</p>{% endif %}</div>
     {% endif %}

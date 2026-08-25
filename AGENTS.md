@@ -28,6 +28,7 @@ The current product is a fast, dependable copilot for a manually entered live fa
 - Calculate replacement level against remaining league demand after subtracting drafted players; never apply full-league demand indices directly to an already-depleted available pool.
 - Model diminishing marginal value at surplus roster positions and ensure every viable unfilled starter position appears in the advisor candidate set. Do not compare raw cross-position season totals as roster utility.
 - Keep user strategy preferences explicit and snapshotted. Rookie and preferred-team bonuses are small tie-breakers; they never override legality, identity, required roster construction, or major value gaps.
+- Treat configured user-team position maximums as deterministic pick constraints. Treat target rounds as soft, explainable evaluation preferences that retain an emergency candidate; never apply either preference to opponent roster legality.
 - Preserve provider import audits, data-mode/freshness labels, source checksums/caches, and unmatched-review records. External failure must leave the last usable local data intact.
 - Validate every AI response against a strict schema and the deterministic available-candidate allowlist. Use bounded timeouts, avoid page-load API spam, and persist only validated advisory history.
 - Keep the short live-draft AI timeout separate from the longer readiness diagnostic timeout. Diagnostics must bypass live-result caches, report credential-safe latency/failure details, and never weaken immediate deterministic fallback.

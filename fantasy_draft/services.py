@@ -278,6 +278,36 @@ class DraftService:
             for player in session.scalars(query)
         ]
 
+    def _validate_user_position_limit(
+        self,
+        session: Session,
+        draft_id: int,
+        team_id: str,
+        player: Player,
+        config: LeagueConfig,
+        *,
+        excluding_overall: int | None = None,
+    ) -> None:
+        maximum = config.strategy.max_roster_counts.get(player.primary_position)
+        if team_id != config.draft.our_team_id or maximum is None:
+            return
+        query = (
+            select(func.count(DraftPick.id))
+            .join(Player, DraftPick.player_id == Player.id)
+            .where(
+                DraftPick.draft_id == draft_id,
+                DraftPick.team_id == team_id,
+                Player.primary_position == player.primary_position,
+            )
+        )
+        if excluding_overall is not None:
+            query = query.where(DraftPick.overall_pick != excluding_overall)
+        current = session.scalar(query) or 0
+        if current >= maximum:
+            raise DraftConflictError(
+                f"strategy limits our roster to {maximum} {player.primary_position}"
+            )
+
     def make_pick(self, draft_id: int, player_id: str) -> int:
         try:
             with self.session_factory.begin() as session:
@@ -306,6 +336,9 @@ class DraftService:
 
                 coordinates = pick_coordinates(overall, config.league.team_count)
                 team_id = team_for_pick(config, overall)
+                self._validate_user_position_limit(
+                    session, draft_id, team_id, player, config
+                )
                 roster = self._team_roster_players(session, draft_id, team_id)
                 roster.append(RosterPlayer(player.id, frozenset(player.eligible_positions)))
                 validate_roster(roster, config)
@@ -378,6 +411,14 @@ class DraftService:
                     raise DraftConflictError(f"{player.name} has already been drafted")
                 roster = self._team_roster_players(
                     session, draft_id, pick.team_id, excluding_overall=overall_pick
+                )
+                self._validate_user_position_limit(
+                    session,
+                    draft_id,
+                    pick.team_id,
+                    player,
+                    config,
+                    excluding_overall=overall_pick,
                 )
                 roster.append(RosterPlayer(player.id, frozenset(player.eligible_positions)))
                 validate_roster(roster, config)

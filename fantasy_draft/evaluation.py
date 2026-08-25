@@ -169,9 +169,9 @@ def select_advisor_candidates(
     needed = _needed_positions(state)
     position_caps = {
         position: (
-            5 if position in needed
-            else 1 if roster_counts[position] > capacity[position]
-            else 2 if roster_counts[position] == capacity[position]
+            3 if position in needed
+            else 2 if roster_counts[position] > capacity[position]
+            else 3 if roster_counts[position] == capacity[position]
             else 4
         )
         for position in {item.player.primary_position for item in eligible}

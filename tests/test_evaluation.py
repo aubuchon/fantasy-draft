@@ -148,7 +148,7 @@ def test_advisor_allowlist_includes_needs_and_caps_surplus_position(service):
     ]
     selected = select_advisor_candidates(state, evaluated, limit=10)
     counts = Counter(candidate.player.primary_position for candidate in selected)
-    assert counts["QB"] == 1
+    assert counts["QB"] == 2
     assert counts["TE"] >= 3
 
 

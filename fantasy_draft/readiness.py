@@ -233,7 +233,8 @@ class ReadinessService:
                 f"timeout={diagnostic.timeout_seconds:g}s; "
                 f"max_retries={diagnostic.max_retries}; "
                 f"latency={diagnostic.latency_ms / 1000:.2f}s; "
-                f"structured_output={'PASS' if diagnostic.structured_output_valid else 'NOT VALIDATED'}"
+                f"structured_output={'PASS' if diagnostic.structured_output_valid else 'NOT VALIDATED'}; "
+                f"response_status={diagnostic.response_status or 'not returned'}"
             )
             if diagnostic.success:
                 sections["AI"].append(Check(

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -24,7 +25,18 @@ class AdvisorUnavailable(RuntimeError):
 
 
 class AdvisorValidationError(ValueError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str = "validation",
+        model_used: str | None = None,
+        response_status: str | None = None,
+    ):
+        super().__init__(message)
+        self.category = category
+        self.model_used = model_used
+        self.response_status = response_status
 
 
 @dataclass(frozen=True)
@@ -39,6 +51,7 @@ class AdvisorDiagnostic:
     structured_output_valid: bool
     failure_category: str | None = None
     exception_type: str | None = None
+    response_status: str | None = None
 
 
 def classify_openai_failure(exc: Exception) -> str:
@@ -70,8 +83,10 @@ def classify_openai_failure(exc: Exception) -> str:
         return f"api.http_{exc.status_code}"
     if isinstance(exc, APIConnectionError):
         return "connection.transport"
-    if isinstance(exc, (AdvisorValidationError, ValidationError)):
-        return "structured_output.validation"
+    if isinstance(exc, AdvisorValidationError):
+        return f"structured_output.{exc.category}"
+    if isinstance(exc, ValidationError):
+        return "structured_output.schema_validation"
     if isinstance(exc, AdvisorUnavailable):
         return "configuration.unavailable"
     return f"unexpected.{type(exc).__name__}"
@@ -206,6 +221,55 @@ class OpenAIStrategicAdvisor:
             ).encode()
         ).hexdigest()
 
+    def _response_format(
+        self, candidates: Sequence[EvaluatedPlayer]
+    ) -> type[LLMAdvisorOutput]:
+        """Build a strict schema whose player IDs are limited to this candidate set."""
+        candidate_ids = tuple(item.player.id for item in candidates)
+        allowed_player_id = Literal.__getitem__(candidate_ids)
+        suffix = hashlib.sha256("\n".join(candidate_ids).encode()).hexdigest()[:12]
+        recommendation_model = create_model(
+            f"DraftRecommendation_{suffix}",
+            __base__=LLMRecommendation,
+            player_id=(allowed_player_id, ...),
+        )
+        return create_model(
+            f"DraftAdvisorOutput_{suffix}",
+            __base__=LLMAdvisorOutput,
+            recommendations=(
+                list[recommendation_model],
+                Field(min_length=5, max_length=5),
+            ),
+            preferred_player_id=(allowed_player_id, ...),
+        )
+
+    def _missing_output_error(self, response: Any) -> AdvisorValidationError:
+        model_used = str(getattr(response, "model", None) or self.model)
+        status = str(getattr(response, "status", None) or "unknown")
+        refusal = any(
+            getattr(content, "type", None) == "refusal"
+            for output in (getattr(response, "output", None) or [])
+            if getattr(output, "type", None) == "message"
+            for content in (getattr(output, "content", None) or [])
+        )
+        if refusal:
+            category = "refusal"
+        elif status == "incomplete":
+            details = getattr(response, "incomplete_details", None)
+            reason = str(getattr(details, "reason", None) or "unknown")
+            safe_reason = re.sub(r"[^a-z0-9_]+", "_", reason.lower()).strip("_")
+            category = f"incomplete_{safe_reason or 'unknown'}"
+        elif status == "failed":
+            category = "response_failed"
+        else:
+            category = "missing_parsed_output"
+        return AdvisorValidationError(
+            "advisor returned no structured output",
+            category=category,
+            model_used=model_used,
+            response_status=status,
+        )
+
     def _validate_and_convert(
         self,
         output: LLMAdvisorOutput,
@@ -214,12 +278,18 @@ class OpenAIStrategicAdvisor:
         latency_ms: int | None,
         model_used: str | None = None,
         reasoning_effort: str | None = None,
+        response_status: str | None = None,
     ) -> RecommendationSet:
         by_id = {item.player.id: item.player for item in candidates}
         returned = {item.player_id for item in output.recommendations}
         invalid = sorted(returned - by_id.keys())
         if invalid:
-            raise AdvisorValidationError("advisor returned a player outside the allowed candidate set")
+            raise AdvisorValidationError(
+                "advisor returned a player outside the allowed candidate set",
+                category="candidate_not_allowed",
+                model_used=model_used or self.model,
+                response_status=response_status,
+            )
         recommendations = [
             Recommendation(
                 item.label, by_id[item.player_id], item.note, round(item.confidence * 100)
@@ -241,6 +311,7 @@ class OpenAIStrategicAdvisor:
             reasoning_effort=reasoning_effort or self.reasoning_effort,
             configured_model=self.model,
             configured_timeout_seconds=self.timeout_seconds,
+            response_status=response_status,
         )
 
     def _cached(
@@ -266,6 +337,7 @@ class OpenAIStrategicAdvisor:
                 latency_ms=history.latency_ms,
                 model_used=history.model,
                 reasoning_effort=self.reasoning_effort,
+                response_status="completed",
             )
 
     def recommend(
@@ -303,6 +375,7 @@ class OpenAIStrategicAdvisor:
                 max_retries=self.max_retries,
             )
         started = time.perf_counter()
+        response_format = self._response_format(candidates)
         response = self._client.responses.parse(
             model=self.model,
             reasoning={"effort": self.reasoning_effort},
@@ -317,12 +390,12 @@ class OpenAIStrategicAdvisor:
                 },
                 {"role": "user", "content": json.dumps(packet, separators=(",", ":"))},
             ],
-            text_format=LLMAdvisorOutput,
+            text_format=response_format,
         )
         latency_ms = round((time.perf_counter() - started) * 1000)
         output = response.output_parsed
         if output is None:
-            raise AdvisorValidationError("advisor returned no structured output")
+            raise self._missing_output_error(response)
         if not isinstance(output, LLMAdvisorOutput):
             output = LLMAdvisorOutput.model_validate(output)
         model_used = str(getattr(response, "model", None) or self.model)
@@ -336,6 +409,7 @@ class OpenAIStrategicAdvisor:
             latency_ms=latency_ms,
             model_used=model_used,
             reasoning_effort=reasoning_effort,
+            response_status=str(getattr(response, "status", None) or "completed"),
         )
         if persist:
             with self.session_factory.begin() as session:
@@ -368,7 +442,7 @@ class OpenAIStrategicAdvisor:
             return AdvisorDiagnostic(
                 success=False,
                 configured_model=self.model,
-                model_used=None,
+                model_used=getattr(exc, "model_used", None),
                 reasoning_effort=self.reasoning_effort,
                 timeout_seconds=self.timeout_seconds,
                 max_retries=self.max_retries,
@@ -376,6 +450,7 @@ class OpenAIStrategicAdvisor:
                 structured_output_valid=False,
                 failure_category=classify_openai_failure(exc),
                 exception_type=type(exc).__name__,
+                response_status=getattr(exc, "response_status", None),
             )
         return AdvisorDiagnostic(
             success=True,
@@ -386,4 +461,5 @@ class OpenAIStrategicAdvisor:
             max_retries=self.max_retries,
             latency_ms=result.latency_ms or round((time.perf_counter() - started) * 1000),
             structured_output_valid=True,
+            response_status=result.response_status or "completed",
         )

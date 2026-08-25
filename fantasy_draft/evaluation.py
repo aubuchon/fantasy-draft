@@ -324,6 +324,7 @@ class RecommendationSet:
     fallback_reason: str | None = None
     configured_model: str | None = None
     configured_timeout_seconds: float | None = None
+    response_status: str | None = None
 
 
 class StrategicAdvisor(Protocol):

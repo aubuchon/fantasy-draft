@@ -41,13 +41,15 @@ class FakeResponses:
 
     def parse(self, **kwargs):
         self.calls += 1
-        assert kwargs["text_format"] is LLMAdvisorOutput
+        assert issubclass(kwargs["text_format"], LLMAdvisorOutput)
         if self.error:
             raise self.error
         return SimpleNamespace(
             output_parsed=self.output,
             model="gpt-5.6-sol",
             reasoning=SimpleNamespace(effort="low"),
+            status="completed",
+            output=[],
         )
 
 
@@ -93,8 +95,9 @@ def test_invented_or_wrong_candidate_is_rejected(service):
         api_key="test-value",
         client=SimpleNamespace(responses=FakeResponses(valid_output(ids))),
     )
-    with pytest.raises(AdvisorValidationError, match="outside"):
+    with pytest.raises(AdvisorValidationError, match="outside") as error:
         advisor.recommend(state, evaluated, force=True)
+    assert error.value.category == "candidate_not_allowed"
 
 
 def test_drafted_player_from_stale_candidate_list_is_rejected(service):
@@ -185,3 +188,57 @@ def test_timeout_diagnostic_distinguishes_read_from_connect_timeout(service):
     connect_error = APITimeoutError(request=request)
     connect_error.__cause__ = httpx.ConnectTimeout("connect timed out", request=request)
     assert classify_openai_failure(connect_error) == "timeout.connect"
+
+
+def test_diagnostic_reports_missing_structured_output_subtype(service):
+    state, evaluated, session_factory = setup_state(service)
+    responses = FakeResponses(output=None)
+    advisor = OpenAIStrategicAdvisor(
+        session_factory,
+        api_key="test-value",
+        timeout_seconds=30,
+        client=SimpleNamespace(responses=responses),
+    )
+    diagnostic = advisor.diagnose(state, evaluated)
+    assert diagnostic.success is False
+    assert diagnostic.failure_category == "structured_output.missing_parsed_output"
+    assert diagnostic.model_used == "gpt-5.6-sol"
+    assert diagnostic.response_status == "completed"
+
+
+def test_dynamic_schema_limits_all_player_ids_to_candidates(service):
+    state, evaluated, session_factory = setup_state(service)
+    advisor = OpenAIStrategicAdvisor(session_factory, api_key="test-value")
+    candidates = evaluated[:20]
+    schema = advisor._response_format(candidates).model_json_schema()
+    serialized = str(schema)
+    for candidate in candidates:
+        assert candidate.player.id in serialized
+    assert "invented-player" not in serialized
+
+
+def test_missing_output_distinguishes_incomplete_and_refusal(service):
+    _, _, session_factory = setup_state(service)
+    advisor = OpenAIStrategicAdvisor(session_factory, api_key="test-value")
+    incomplete = SimpleNamespace(
+        model="gpt-5.6-terra",
+        status="incomplete",
+        incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+        output=[],
+    )
+    incomplete_error = advisor._missing_output_error(incomplete)
+    assert classify_openai_failure(incomplete_error) == (
+        "structured_output.incomplete_max_output_tokens"
+    )
+    assert incomplete_error.response_status == "incomplete"
+
+    refusal = SimpleNamespace(
+        model="gpt-5.6-terra",
+        status="completed",
+        output=[SimpleNamespace(
+            type="message",
+            content=[SimpleNamespace(type="refusal")],
+        )],
+    )
+    refusal_error = advisor._missing_output_error(refusal)
+    assert classify_openai_failure(refusal_error) == "structured_output.refusal"

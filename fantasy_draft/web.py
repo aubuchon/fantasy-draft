@@ -125,6 +125,7 @@ def _state_payload(state, recommendations, evaluated=()) -> dict:
         "recommendation_configured_model": recommendations.configured_model,
         "recommendation_reasoning_effort": recommendations.reasoning_effort,
         "recommendation_timeout_seconds": recommendations.configured_timeout_seconds,
+        "recommendation_response_status": recommendations.response_status,
         "next_pick_strategy": recommendations.next_pick_strategy,
     }
 

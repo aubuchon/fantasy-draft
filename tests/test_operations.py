@@ -99,6 +99,7 @@ def test_readiness_reports_diagnostic_configuration_and_failure_category(service
                 structured_output_valid=False,
                 failure_category="timeout.read",
                 exception_type="APITimeoutError",
+                response_status=None,
             )
 
     report = ReadinessService(

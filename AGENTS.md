@@ -25,6 +25,9 @@ The current product is a fast, dependable copilot for a manually entered live fa
 - Retire a fallback duplicate automatically only when it is sample-only and exactly one provider-ID-backed canonical identity exists. Preserve or safely repoint draft history; never silently merge competing authoritative identities.
 - Exclude unresolved duplicate identities from deterministic and LLM recommendations, expose them in data health, and fail the readiness identity check until resolved.
 - Calculate fantasy points from raw provider statistics through the snapshotted league scoring configuration. Provider generic fantasy points are informational only.
+- Calculate replacement level against remaining league demand after subtracting drafted players; never apply full-league demand indices directly to an already-depleted available pool.
+- Model diminishing marginal value at surplus roster positions and ensure every viable unfilled starter position appears in the advisor candidate set. Do not compare raw cross-position season totals as roster utility.
+- Keep user strategy preferences explicit and snapshotted. Rookie and preferred-team bonuses are small tie-breakers; they never override legality, identity, required roster construction, or major value gaps.
 - Preserve provider import audits, data-mode/freshness labels, source checksums/caches, and unmatched-review records. External failure must leave the last usable local data intact.
 - Validate every AI response against a strict schema and the deterministic available-candidate allowlist. Use bounded timeouts, avoid page-load API spam, and persist only validated advisory history.
 - Keep the short live-draft AI timeout separate from the longer readiness diagnostic timeout. Diagnostics must bypass live-result caches, report credential-safe latency/failure details, and never weaken immediate deterministic fallback.
@@ -39,6 +42,7 @@ The current product is a fast, dependable copilot for a manually entered live fa
 - Make destructive/corrective actions explicit and easy to verify.
 - Preserve manual fallbacks for all external-data and AI features.
 - Automatically call the live advisor only after the preceding pick puts our team on the clock. Cache success and safe failure markers for unchanged state; repeat requests require an explicit user retry.
+- Give the LLM a curated, roster-aware candidate set and every team roster. Deterministic code evaluates the full available pool; do not flood the model with the entire player database or starve it of required-position candidates.
 
 ## Change discipline
 

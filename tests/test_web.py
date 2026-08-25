@@ -84,6 +84,7 @@ def test_live_draft_web_and_api_flow(tmp_path):
         assert '>QB</a>' in response.text
         assert '<th>Age</th>' in response.text
         assert 'title="NFL experience; R means rookie">Yr</th>' in response.text
+        assert "Active tie-breakers: late-round rookies" in response.text
         assert ">30</td>" in response.text
         assert ">R</td>" in response.text
 

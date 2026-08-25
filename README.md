@@ -103,9 +103,26 @@ After a successful pre-draft refresh, the current empty draft pins those import-
 
 ## Evaluation and AI
 
-Raw projection fields flow through `scoring.py` and the draft's configuration snapshot. Provider fantasy-point totals are never authoritative. The evaluator derives replacement demand from team count, starters, configurable FLEX/SUPERFLEX eligibility, and part of configured bench demand; then computes VOR, tier cliffs, scarcity, and a seeded Monte Carlo next-pick survival probability.
+Raw projection fields flow through `scoring.py` and the draft's configuration snapshot. Provider fantasy-point totals are never authoritative. The evaluator derives replacement demand from team count, starters, configurable FLEX/SUPERFLEX eligibility, part of configured bench demand, and players already drafted; then computes VOR, tier cliffs, scarcity, and a seeded Monte Carlo next-pick survival probability. Roster utility gives diminishing weight to surplus-position depth and increasing urgency to required starters as open picks disappear.
 
-The OpenAI advisor receives only the top 20 valid quantitative candidates plus concise league/draft/roster/opponent context. It uses the Responses API Structured Outputs schema, constrains player IDs to that request's candidate allowlist, defaults to `gpt-5.6-terra` with `low` reasoning effort, and makes no draft mutations. The automatic request happens only once the preceding pick has been saved and our team is on the clock. Successful results and credential-safe failed-attempt markers are cached for that exact draft state, so refreshes do not call the model again. Missing key, timeout, network failure, rate limit, invalid schema, or invented/drafted ID all result in the offline quantitative recommendations with a prominent `AI FALLBACK ACTIVE` warning.
+Advisory preferences are explicit, snapshotted configuration—not hidden prompt text:
+
+```yaml
+strategy:
+  rookie_late_round_bonus: 4.0
+  preferred_nfl_team_bonuses: {CHI: 1.0}
+  required_starter_bonus: 24.0
+  surplus_position_penalty: 18.0
+  replacement_bench_fraction: 0.5
+```
+
+Rookie preference grows quadratically through the draft and is scaled by upside/market quality. Preferred-team bonuses remain small additive tie-breakers. New drafts snapshot the master YAML. To explicitly apply only the master strategy section to the selected setup/active draft without changing picks or league rules:
+
+```bash
+.venv/bin/fantasy-draft-ops apply-master-strategy
+```
+
+The OpenAI advisor receives a roster-aware, position-diverse set of up to 20 valid quantitative candidates plus every league roster, remaining needs, next-turn opponents, and configured strategy preferences. Required starter positions are guaranteed representation when candidates exist; surplus positions are capped. It uses the Responses API Structured Outputs schema, constrains player IDs to that request's candidate allowlist, defaults to `gpt-5.6-terra` with `low` reasoning effort, and makes no draft mutations. The automatic request happens only once the preceding pick has been saved and our team is on the clock. Successful results and credential-safe failed-attempt markers are cached for that exact draft state, so refreshes do not call the model again. Missing key, timeout, network failure, rate limit, invalid schema, or invented/drafted ID all result in the offline quantitative recommendations with a prominent `AI FALLBACK ACTIVE` warning.
 
 Live and diagnostic latency budgets are deliberately separate. `OPENAI_LIVE_TIMEOUT_SECONDS` defaults to 25 seconds and uses zero retries, leaving time within a 30-second decision budget to read the deterministic fallback and act. `OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS` defaults to 30 seconds, also uses zero retries, bypasses the live recommendation cache, and reports configured/returned model, reasoning effort, timeout, measured latency, response status, Structured Output validation, and a credential-safe failure category. Validation diagnostics distinguish refusals, incomplete responses, missing parsed output, schema failures, and candidate-allowlist violations. The deprecated `OPENAI_TIMEOUT_SECONDS` is accepted only as a live-timeout fallback and never controls readiness. Environment changes take effect after restarting the server.
 

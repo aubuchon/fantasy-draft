@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from fantasy_draft.config import (
     LeagueConfig,
+    StrategyPreferences,
     dump_league_config,
     load_league_config_text,
 )
@@ -171,6 +172,24 @@ class DraftService:
         with self.session_factory.begin() as session:
             self._get_draft(session, draft_id)
             self._set_current(session, draft_id)
+
+    def update_strategy_preferences(
+        self, draft_id: int, preferences: StrategyPreferences
+    ) -> None:
+        """Explicitly update advisory preferences without changing league rules or picks."""
+        with self.session_factory.begin() as session:
+            draft = self._get_draft(session, draft_id)
+            if draft.status not in {"setup", "active"}:
+                raise DraftConflictError(
+                    "strategy preferences can only change on setup or active drafts"
+                )
+            config = load_league_config_text(draft.config_snapshot)
+            raw = config.model_dump()
+            raw["strategy"] = preferences.model_dump()
+            draft.config_snapshot = dump_league_config(
+                LeagueConfig.model_validate(raw)
+            )
+            draft.updated_at = utc_now()
 
     def activate_draft(self, draft_id: int) -> None:
         with self.session_factory.begin() as session:

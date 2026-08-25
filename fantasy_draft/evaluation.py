@@ -52,6 +52,7 @@ class EvaluatedPlayer:
     roster_fit: float
     upside_adjustment: float
     risk_adjustment: float
+    preference_adjustment: float
     quantitative_score: float
     simulations: int
     approximations: tuple[str, ...] = ()
@@ -62,10 +63,13 @@ class PlayerEvaluationProvider(Protocol):
 
 
 def calculate_replacement_profile(
-    config: LeagueConfig, projections: dict[str, list[float]]
+    config: LeagueConfig,
+    projections: dict[str, list[float]],
+    drafted_counts: Counter[str] | None = None,
 ) -> ReplacementProfile:
-    """Calculate position demand from configured starters, flexes, and bench depth."""
+    """Calculate remaining replacement demand from league slots and drafted players."""
     team_count = config.league.team_count
+    drafted_counts = drafted_counts or Counter()
     demand: Counter[str] = Counter()
     flexible: list[set[str]] = []
     bench_slots = 0
@@ -85,7 +89,7 @@ def calculate_replacement_profile(
         candidates = []
         for position in eligible:
             values = projections.get(position, [])
-            index = demand[position]
+            index = max(0, demand[position] - drafted_counts[position])
             next_value = values[index] if index < len(values) else float("-inf")
             candidates.append((next_value, position))
         return max(candidates)[1] if candidates else None
@@ -93,18 +97,130 @@ def calculate_replacement_profile(
     for eligible in flexible:
         if position := best_position(eligible):
             demand[position] += 1
-    for _ in range(round(bench_slots * 0.25)):
-        if position := best_position(set(projections)):
-            demand[position] += 1
+
+    modeled_bench = round(bench_slots * config.strategy.replacement_bench_fraction)
+    bench_positions = [position for position in projections if demand[position] > 0]
+    starter_total = sum(demand[position] for position in bench_positions)
+    if modeled_bench and starter_total:
+        exact = {
+            position: modeled_bench * demand[position] / starter_total
+            for position in bench_positions
+        }
+        allocated = {position: int(value) for position, value in exact.items()}
+        remaining = modeled_bench - sum(allocated.values())
+        for position in sorted(
+            bench_positions,
+            key=lambda item: (exact[item] - allocated[item], demand[item]),
+            reverse=True,
+        )[:remaining]:
+            allocated[position] += 1
+        demand.update(allocated)
 
     levels: dict[str, float] = {}
     for position, values in projections.items():
         if not values:
             levels[position] = 0.0
             continue
-        replacement_index = min(len(values) - 1, max(0, demand[position]))
+        remaining_demand = max(0, demand[position] - drafted_counts[position])
+        replacement_index = min(len(values) - 1, remaining_demand)
         levels[position] = values[replacement_index]
     return ReplacementProfile(dict(demand), levels)
+
+
+def _starting_capacity(config: LeagueConfig) -> Counter[str]:
+    capacity: Counter[str] = Counter()
+    for slot in config.roster.slots:
+        if slot.starter and slot.draftable:
+            for position in slot.eligible_positions:
+                capacity[position] += slot.count
+    return capacity
+
+
+def _needed_positions(state: DraftState) -> set[str]:
+    needs = set(state.team_needs[state.config.draft.our_team_id])
+    return {
+        position
+        for slot in state.config.roster.slots
+        if slot.code in needs
+        for position in slot.eligible_positions
+    }
+
+
+def select_advisor_candidates(
+    state: DraftState,
+    evaluated: Sequence[EvaluatedPlayer],
+    *,
+    limit: int,
+) -> list[EvaluatedPlayer]:
+    """Build a diverse, roster-aware allowlist from deterministic evaluations."""
+    identity_counts = Counter(
+        (normalize_name(item.player.name), item.player.primary_position)
+        for item in evaluated
+    )
+    eligible = [
+        item for item in evaluated
+        if identity_counts[(normalize_name(item.player.name), item.player.primary_position)] == 1
+    ]
+    our_team = state.config.draft.our_team_id
+    roster_counts = Counter(
+        pick.player.primary_position for pick in state.picks if pick.team_id == our_team
+    )
+    capacity = _starting_capacity(state.config)
+    needed = _needed_positions(state)
+    position_caps = {
+        position: (
+            5 if position in needed
+            else 1 if roster_counts[position] > capacity[position]
+            else 2 if roster_counts[position] == capacity[position]
+            else 4
+        )
+        for position in {item.player.primary_position for item in eligible}
+    }
+    selected: list[EvaluatedPlayer] = []
+    selected_ids: set[str] = set()
+    selected_positions: Counter[str] = Counter()
+
+    def add(item: EvaluatedPlayer) -> None:
+        if item.player.id in selected_ids or len(selected) >= limit:
+            return
+        selected.append(item)
+        selected_ids.add(item.player.id)
+        selected_positions[item.player.primary_position] += 1
+
+    for position in sorted(needed):
+        for item in (candidate for candidate in eligible if candidate.player.primary_position == position):
+            if selected_positions[position] >= min(3, position_caps.get(position, 0)):
+                break
+            add(item)
+    for item in eligible:
+        position = item.player.primary_position
+        if selected_positions[position] < position_caps.get(position, 0):
+            add(item)
+    return sorted(selected, key=lambda item: item.quantitative_score, reverse=True)
+
+
+def calculate_preference_adjustment(
+    config: LeagueConfig,
+    player: Player,
+    metrics: PlayerMetrics,
+    *,
+    season: int | None,
+    draft_progress: float,
+) -> float:
+    market_rank = metrics.ecr or metrics.adp or 250.0
+    rookie_quality = max(
+        player.upside or 0.0,
+        max(0.0, 1.0 - market_rank / 250.0),
+    )
+    rookie_bonus = (
+        config.strategy.rookie_late_round_bonus
+        * draft_progress * draft_progress * rookie_quality
+        if player.draft_year == season else 0.0
+    )
+    team_bonus = config.strategy.preferred_nfl_team_bonuses.get(
+        (player.nfl_team or "").upper(), 0.0
+    )
+    return rookie_bonus + team_bonus
 
 
 def calculate_tiers(
@@ -260,12 +376,15 @@ class BaselinePlayerEvaluator:
 
     def evaluate(self, state: DraftState, players: Sequence[Player]) -> list[EvaluatedPlayer]:
         metrics = self._metrics(state, players)
+        drafted_counts = Counter(pick.player.primary_position for pick in state.picks)
         projections: dict[str, list[float]] = defaultdict(list)
         for player in players:
             projections[player.primary_position].append(metrics[player.id].projected_points)
         for values in projections.values():
             values.sort(reverse=True)
-        replacement = calculate_replacement_profile(state.config, projections)
+        replacement = calculate_replacement_profile(
+            state.config, projections, drafted_counts
+        )
         vors = {
             player.id: metrics[player.id].projected_points - replacement.levels.get(player.primary_position, 0)
             for player in players
@@ -278,7 +397,15 @@ class BaselinePlayerEvaluator:
             state, [(player, metrics[player.id]) for player in players],
             simulations=self.simulations,
         )
-        our_needs = set(state.team_needs[state.config.draft.our_team_id])
+        our_team = state.config.draft.our_team_id
+        needed_positions = _needed_positions(state)
+        our_counts = Counter(
+            pick.player.primary_position for pick in state.picks if pick.team_id == our_team
+        )
+        starting_capacity = _starting_capacity(state.config)
+        required_remaining = len(state.team_needs[our_team])
+        picks_remaining = max(0, state.config.draft.rounds - our_counts.total())
+        required_slack = max(0, picks_remaining - required_remaining)
         progress = state.current_pick.round_number / state.config.draft.rounds if state.current_pick else 1
         results = []
         for player in players:
@@ -286,17 +413,55 @@ class BaselinePlayerEvaluator:
             probability = survival[player.id]
             scarcity = cliffs[player.id]
             cost_waiting = scarcity * (1 - probability) if probability is not None else 0.0
-            roster_fit = 8.0 if player.primary_position in our_needs else 0.0
+            is_needed = player.primary_position in needed_positions
+            need_multiplier = 2.0 if required_slack <= 1 and required_remaining else 1.0
+            need_bonus = (
+                state.config.strategy.required_starter_bonus
+                * progress * progress
+                * need_multiplier
+                if is_needed else 0.0
+            )
+            surplus_before = max(
+                0, our_counts[player.primary_position] - starting_capacity[player.primary_position]
+            )
+            surplus_penalty = (
+                state.config.strategy.surplus_position_penalty * surplus_before
+                if not is_needed else 0.0
+            )
+            roster_fit = need_bonus - surplus_penalty
+            if is_needed or our_counts[player.primary_position] < starting_capacity[player.primary_position]:
+                vor_utility = 1.0
+            elif surplus_before == 0:
+                vor_utility = 0.45
+            else:
+                vor_utility = 0.15
             upside = (player.upside or 0) * (4 + 12 * progress)
             risk = (player.injury_risk or 0) * (12 - 6 * progress)
             market_value = max(-15, min(15, (state.current_pick.overall if state.current_pick else 1) - (metric.ecr or metric.adp or 999)))
-            score = vors[player.id] * 1.6 + scarcity * .7 + cost_waiting * 1.8 + roster_fit + upside - risk + market_value
+            preference = calculate_preference_adjustment(
+                state.config,
+                player,
+                metric,
+                season=state.season,
+                draft_progress=progress,
+            )
+            score = (
+                vors[player.id] * 1.6 * vor_utility
+                + scarcity * .7
+                + cost_waiting * 1.8
+                + roster_fit
+                + upside
+                - risk
+                + market_value
+                + preference
+            )
             results.append(EvaluatedPlayer(
                 player, round(metric.projected_points, 2), round(vors[player.id], 2),
                 round(replacement.levels.get(player.primary_position, 0), 2),
                 metric.ecr, metric.adp, metric.provider_tier, our_tiers[player.id],
                 cliffs[player.id], scarcity, probability, round(cost_waiting, 2),
-                roster_fit, round(upside, 2), round(-risk, 2), round(score, 2),
+                round(roster_fit, 2), round(upside, 2), round(-risk, 2),
+                round(preference, 2), round(score, 2),
                 self.simulations, metric.approximations,
             ))
         return sorted(results, key=lambda item: item.quantitative_score, reverse=True)
@@ -360,14 +525,7 @@ class ResilientStrategicAdvisor:
 
 class OfflineStrategicAdvisor:
     def recommend(self, state: DraftState, evaluated: Sequence[EvaluatedPlayer]) -> RecommendationSet:
-        identity_counts = Counter(
-            (normalize_name(item.player.name), item.player.primary_position)
-            for item in evaluated
-        )
-        pool = [
-            item for item in evaluated
-            if identity_counts[(normalize_name(item.player.name), item.player.primary_position)] == 1
-        ][:30]
+        pool = select_advisor_candidates(state, evaluated, limit=30)
         if not pool:
             return RecommendationSet(
                 [],
@@ -390,10 +548,10 @@ class OfflineStrategicAdvisor:
 
         choices = [
             choose("BEST", lambda item: item.quantitative_score, lambda item: f"{item.vor:+.1f} VOR with {item.cost_of_waiting:.1f} cost of waiting."),
-            choose("SAFE", lambda item: item.projected_points + item.risk_adjustment, lambda item: f"Projects for {item.projected_points:.1f} league points with strong baseline value."),
-            choose("UPSIDE", lambda item: item.upside_adjustment + item.tier_cliff, lambda item: f"Upside profile plus a {item.tier_cliff:.1f}-point tier cliff."),
-            choose("VALUE", lambda item: (state.current_pick.overall if state.current_pick else 1) - (item.ecr or 999), lambda item: f"ECR {item.ecr or '—'} versus current pick."),
-            choose("STRATEGIC", lambda item: item.cost_of_waiting, lambda item: f"{((item.survival_probability or 0) * 100):.0f}% likely to survive; waiting costs {item.cost_of_waiting:.1f}."),
+            choose("SAFE", lambda item: item.quantitative_score + item.risk_adjustment, lambda item: f"Projects for {item.projected_points:.1f} league points with roster-adjusted baseline value."),
+            choose("UPSIDE", lambda item: item.quantitative_score + item.upside_adjustment + item.tier_cliff, lambda item: f"Upside profile plus a {item.tier_cliff:.1f}-point tier cliff."),
+            choose("VALUE", lambda item: item.quantitative_score + max(0, (state.current_pick.overall if state.current_pick else 1) - (item.ecr or 999)), lambda item: f"ECR {item.ecr or '—'} versus current pick, adjusted for roster utility."),
+            choose("STRATEGIC", lambda item: item.quantitative_score + item.cost_of_waiting, lambda item: f"{((item.survival_probability or 0) * 100):.0f}% likely to survive; waiting costs {item.cost_of_waiting:.1f}."),
         ]
         recommendations = [item for item in choices if item]
         positions = ", ".join(dict.fromkeys(item.player.primary_position for item in recommendations[1:4]))

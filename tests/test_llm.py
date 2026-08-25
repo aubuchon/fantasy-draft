@@ -145,6 +145,8 @@ def test_duplicate_identity_is_never_sent_to_openai(service):
     advisor.recommend(state, evaluated, force=True)
     packet = json.loads(responses.last_kwargs["input"][1]["content"])
     sent_ids = {item["player_id"] for item in packet["allowed_candidates"]}
+    assert len(packet["all_team_rosters"]) == state.config.league.team_count
+    assert packet["strategy_preferences"] == state.config.strategy.model_dump()
     assert "player-1" not in sent_ids
     assert "duplicate-player-1" not in sent_ids
 

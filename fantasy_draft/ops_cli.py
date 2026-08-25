@@ -58,6 +58,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Fantasy Draft AI operational commands")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("refresh-data", help="Refresh FantasyPros and DynastyProcess data")
+    subparsers.add_parser(
+        "apply-master-strategy",
+        help="Apply master YAML strategy preferences to the selected draft",
+    )
     new_parser = subparsers.add_parser("new-draft", help="Create and select a new draft session")
     new_parser.add_argument("--name", required=True)
     new_parser.add_argument("--season", type=int, default=date.today().year)
@@ -91,6 +95,10 @@ def main() -> None:
                 status="setup" if args.setup else "active",
             )
             print(f"Created and selected {args.kind} draft {created}: {args.name}")
+        elif args.command == "apply-master-strategy":
+            master = load_league_config(settings.league_config_path)
+            service.update_strategy_preferences(draft_id, master.strategy)
+            print(f"Applied master strategy preferences to draft {draft_id}.")
         elif args.command == "refresh-data":
             state = service.get_state(draft_id)
             positions = sorted({

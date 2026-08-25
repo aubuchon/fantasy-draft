@@ -14,7 +14,11 @@ from fantasy_draft.config import LeagueConfig
 from fantasy_draft.data_import import DataImportService, detect_data_mode
 from fantasy_draft.database import create_database_engine, create_session_factory
 from fantasy_draft.engine import next_pick_for_team, pick_coordinates, team_for_pick
-from fantasy_draft.evaluation import BaselinePlayerEvaluator, OfflineStrategicAdvisor
+from fantasy_draft.evaluation import (
+    BaselinePlayerEvaluator,
+    OfflineStrategicAdvisor,
+    select_advisor_candidates,
+)
 from fantasy_draft.llm import OpenAIStrategicAdvisor
 from fantasy_draft.migrations import run_migrations
 from fantasy_draft.models import ImportRun, Player, PlayerExternalId, PlayerProjection, PlayerRanking
@@ -218,6 +222,29 @@ class ReadinessService:
                 Check("PASS", f"Tier cliffs and scarcity valid; top candidate {top_eval.player.name} has {top_eval.vor:+.1f} VOR."),
                 Check("PASS" if elapsed < 5 else "WARNING", f"Survival simulation and recommendations completed in {elapsed:.2f}s."),
             ])
+            advisor_candidates = select_advisor_candidates(
+                state, evaluated, limit=20
+            )
+            needed_codes = set(
+                state.team_needs[state.config.draft.our_team_id]
+            )
+            needed_positions = {
+                position
+                for slot in state.config.roster.slots
+                if slot.code in needed_codes
+                for position in slot.eligible_positions
+            }
+            candidate_positions = {
+                item.player.primary_position for item in advisor_candidates
+            }
+            missing_needs = sorted(needed_positions - candidate_positions)
+            sections["EVALUATION"].append(Check(
+                "FAIL" if missing_needs else "PASS",
+                "Advisor allowlist covers every unfilled starter position."
+                if not missing_needs else
+                "Advisor allowlist omits required starter positions.",
+                ", ".join(missing_needs),
+            ))
         except Exception as exc:
             evaluated = []
             sections["EVALUATION"].append(Check("FAIL", "Deterministic evaluation failed.", type(exc).__name__))

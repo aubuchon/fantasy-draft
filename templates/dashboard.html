@@ -100,6 +100,9 @@
     {% else %}
     <p class="ai-trigger-note">AI will make one automatic request after the pick immediately before ours is saved.</p>
     {% endif %}
+    {% if state.config.strategy.rookie_late_round_bonus or state.config.strategy.preferred_nfl_team_bonuses %}
+    <p class="ai-trigger-note">Active tie-breakers: late-round rookies up to +{{ "%g"|format(state.config.strategy.rookie_late_round_bonus) }}{% for team, bonus in state.config.strategy.preferred_nfl_team_bonuses.items() %} · {{ team }} +{{ "%g"|format(bonus) }}{% endfor %}</p>
+    {% endif %}
     {% if recommendations.preferred %}
     <div class="preferred"><span>Recommendation</span><strong>{{ recommendations.preferred.player.name }}</strong><small>{{ recommendations.overall_confidence or recommendations.preferred.confidence }}% confidence{% if recommendations.latency_ms %} · {{ recommendations.latency_ms }} ms{% endif %}</small>{% if recommendations.reason %}<p>{{ recommendations.reason }}</p>{% endif %}</div>
     {% endif %}

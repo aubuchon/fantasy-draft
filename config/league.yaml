@@ -14,7 +14,7 @@ draft:
   type: snake
   entry_mode: manual_offline
   rounds: 17
-  our_team_id: team-1
+  our_team_id: team-6
   allow_pick_trades: false
 
 # Replace names and reorder draft_slot values when the real order is known.
@@ -24,7 +24,7 @@ teams:
   - {id: team-3, name: Team 3, draft_slot: 3}
   - {id: team-4, name: Team 4, draft_slot: 4}
   - {id: team-5, name: Team 5, draft_slot: 5}
-  - {id: team-6, name: Team 6, draft_slot: 6}
+  - {id: team-6, name: AuB, draft_slot: 6}
   - {id: team-7, name: Team 7, draft_slot: 7}
   - {id: team-8, name: Team 8, draft_slot: 8}
 
@@ -39,6 +39,13 @@ roster:
     - {code: DEF, label: Team Defense, count: 1, eligible_positions: [DEF]}
     - {code: BENCH, label: Bench, count: 7, eligible_positions: [QB, WR, RB, TE, K, DEF], starter: false}
     - {code: IR, label: Injured Reserve, count: 1, eligible_positions: [QB, WR, RB, TE, K, DEF], draftable: false, starter: false}
+
+strategy:
+  rookie_late_round_bonus: 4.0
+  preferred_nfl_team_bonuses: {CHI: 1.0}
+  required_starter_bonus: 24.0
+  surplus_position_penalty: 18.0
+  replacement_bench_fraction: 0.5
 
 scoring:
   fractional_points: true

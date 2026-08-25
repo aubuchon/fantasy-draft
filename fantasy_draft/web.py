@@ -103,6 +103,8 @@ def _state_payload(state, recommendations, evaluated=()) -> dict:
                         "scarcity": analytics[player.id].scarcity,
                         "survival_probability": analytics[player.id].survival_probability,
                         "cost_of_waiting": analytics[player.id].cost_of_waiting,
+                        "roster_fit": analytics[player.id].roster_fit,
+                        "preference_adjustment": analytics[player.id].preference_adjustment,
                         "quantitative_score": analytics[player.id].quantitative_score,
                     }
                     if player.id in analytics else None

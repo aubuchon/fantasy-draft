@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import func, select
 
 from fantasy_draft.engine import next_pick_for_team
+from fantasy_draft.config import StrategyPreferences
 from fantasy_draft.models import DraftPick
 from fantasy_draft.services import DraftConflictError, DraftService
 
@@ -74,6 +75,22 @@ def test_reload_reproduces_identical_state(service):
         (2, "team-2", "player-2"),
     ]
     assert reloaded.current_pick.overall == 3
+
+
+def test_strategy_preferences_can_update_without_changing_picks(service):
+    draft_service, draft_id, _ = service
+    draft_service.make_pick(draft_id, "player-1")
+    draft_service.update_strategy_preferences(
+        draft_id,
+        StrategyPreferences(
+            rookie_late_round_bonus=4,
+            preferred_nfl_team_bonuses={"chi": 1},
+        ),
+    )
+    state = draft_service.get_state(draft_id)
+    assert [pick.player_id for pick in state.picks] == ["player-1"]
+    assert state.config.strategy.rookie_late_round_bonus == 4
+    assert state.config.strategy.preferred_nfl_team_bonuses == {"CHI": 1}
 
 
 def test_failed_pick_is_atomic(service):

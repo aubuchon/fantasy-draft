@@ -54,12 +54,29 @@ class RosterSettings(StrictModel):
         return sum(slot.count for slot in self.slots if slot.draftable)
 
 
+class StrategyPreferences(StrictModel):
+    rookie_late_round_bonus: float = Field(default=0.0, ge=0, le=20)
+    preferred_nfl_team_bonuses: dict[str, float] = Field(default_factory=dict)
+    required_starter_bonus: float = Field(default=24.0, ge=0, le=100)
+    surplus_position_penalty: float = Field(default=18.0, ge=0, le=100)
+    replacement_bench_fraction: float = Field(default=0.5, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_team_bonuses(self) -> "StrategyPreferences":
+        normalized = {team.upper(): value for team, value in self.preferred_nfl_team_bonuses.items()}
+        if any(not team or value < 0 or value > 10 for team, value in normalized.items()):
+            raise ValueError("preferred NFL team bonuses must be between 0 and 10")
+        self.preferred_nfl_team_bonuses = normalized
+        return self
+
+
 class LeagueConfig(StrictModel):
     schema_version: int = 1
     league: LeagueDetails
     draft: DraftSettings
     teams: list[TeamConfig]
     roster: RosterSettings
+    strategy: StrategyPreferences = Field(default_factory=StrategyPreferences)
     scoring: dict[str, Any]
     transactions: dict[str, Any] = Field(default_factory=dict)
     playoffs: dict[str, Any] = Field(default_factory=dict)

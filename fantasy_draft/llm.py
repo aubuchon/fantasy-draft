@@ -5,7 +5,6 @@ import json
 import logging
 import re
 import time
-from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, Sequence
 
@@ -17,8 +16,8 @@ from fantasy_draft.evaluation import (
     EvaluatedPlayer,
     Recommendation,
     RecommendationSet,
+    select_advisor_candidates,
 )
-from fantasy_draft.identity import normalize_name
 from fantasy_draft.models import RecommendationHistory
 from fantasy_draft.services import DraftState
 
@@ -159,7 +158,14 @@ class OpenAIStrategicAdvisor:
         team_names = {team.id: team.name for team in state.config.teams}
         rosters = {
             team.id: [
-                {"player_id": pick.player.id, "position": pick.player.primary_position}
+                {
+                    "player_id": pick.player.id,
+                    "name": pick.player.name,
+                    "position": pick.player.primary_position,
+                    "nfl_team": pick.player.nfl_team,
+                    "overall_pick": pick.overall_pick,
+                    "round": pick.round_number,
+                }
                 for pick in state.picks if pick.team_id == team.id
             ]
             for team in state.config.teams
@@ -178,6 +184,18 @@ class OpenAIStrategicAdvisor:
             },
             "our_roster": rosters[state.config.draft.our_team_id],
             "our_needs": state.team_needs[state.config.draft.our_team_id],
+            "our_remaining_slots": state.team_remaining_slots[state.config.draft.our_team_id],
+            "strategy_preferences": state.config.strategy.model_dump(),
+            "all_team_rosters": [
+                {
+                    "team_id": team.id,
+                    "name": team.name,
+                    "roster": rosters[team.id],
+                    "needs": state.team_needs[team.id],
+                    "remaining_slots": state.team_remaining_slots[team.id],
+                }
+                for team in state.config.teams
+            ],
             "teams_before_next_pick": [
                 {
                     "team_id": team_id,
@@ -193,6 +211,8 @@ class OpenAIStrategicAdvisor:
                     "name": item.player.name,
                     "position": item.player.primary_position,
                     "nfl_team": item.player.nfl_team,
+                    "draft_year": item.player.draft_year,
+                    "rookie": item.player.draft_year == state.season,
                     "league_projected_points": item.projected_points,
                     "vor": item.vor,
                     "ecr": item.ecr,
@@ -206,6 +226,7 @@ class OpenAIStrategicAdvisor:
                     "roster_fit": item.roster_fit,
                     "upside_adjustment": item.upside_adjustment,
                     "risk_adjustment": item.risk_adjustment,
+                    "preference_adjustment": item.preference_adjustment,
                     "quantitative_score": item.quantitative_score,
                 }
                 for item in candidates
@@ -400,15 +421,8 @@ class OpenAIStrategicAdvisor:
         use_cache: bool = True,
     ) -> RecommendationSet:
         available_ids = {player.id for player in state.available_players}
-        identity_counts = Counter(
-            (normalize_name(item.player.name), item.player.primary_position)
-            for item in evaluated if item.player.id in available_ids
-        )
-        candidates = [
-            item for item in evaluated
-            if item.player.id in available_ids
-            and identity_counts[(normalize_name(item.player.name), item.player.primary_position)] == 1
-        ][:20]
+        current = [item for item in evaluated if item.player.id in available_ids]
+        candidates = select_advisor_candidates(state, current, limit=20)
         if len(candidates) < 5:
             raise AdvisorUnavailable("at least five candidates are required")
         packet = self._candidate_packet(state, candidates)
@@ -446,9 +460,13 @@ class OpenAIStrategicAdvisor:
                     {
                         "role": "system",
                         "content": (
-                            "You are a live fantasy draft strategist. Use only allowed candidate IDs. "
-                            "Deterministic state is authoritative. Be terse, distinguish value now from "
-                            "probability of surviving to the next pick, and never propose a roster mutation."
+                            "You are a live fantasy draft strategist optimizing expected season-long "
+                            "starting-lineup value. Use only allowed candidate IDs. Deterministic state "
+                            "is authoritative. Account for every roster, diminishing value at surplus "
+                            "positions, required unfilled starters, and next-pick availability. Apply "
+                            "configured rookie/team preferences only as small tie-breakers. Do not fill "
+                            "all five categories with a surplus position when a viable required-starter "
+                            "candidate is allowed. Be terse and never propose a roster mutation."
                         ),
                     },
                     {"role": "user", "content": json.dumps(packet, separators=(",", ":"))},

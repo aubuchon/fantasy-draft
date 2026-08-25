@@ -20,6 +20,12 @@ def test_live_draft_web_and_api_flow(tmp_path):
         assert response.status_code == 200
         assert "On the clock" in response.text
         assert "Josh Allen" in response.text
+        assert "AI FALLBACK ACTIVE" in response.text
+        assert "deterministic quantitative recommendations" in response.text
+
+        script = client.get("/static/app.js").text
+        assert "Draft ${name} with the current pick?" not in script
+        assert 'button.textContent = "Saving…"' in script
 
         created = client.post("/api/picks", json={"player_id": "sample-bijan-robinson"})
         assert created.status_code == 201
@@ -27,6 +33,8 @@ def test_live_draft_web_and_api_flow(tmp_path):
 
         state = client.get("/api/state").json()
         assert state["current_pick"]["overall"] == 2
+        assert state["recommendation_is_fallback"] is True
+        assert state["recommendation_fallback_reason"]
         assert state["picks"][0]["team_id"] == "team-1"
         assert "team-1" in state["team_needs"]
         assert len(state["team_remaining_slots"]["team-1"]) == 16

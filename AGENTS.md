@@ -29,7 +29,7 @@ The current product is a fast, dependable copilot for a manually entered live fa
 
 ## Live-draft UX rules
 
-- Optimize common pick entry for speed, clear confirmation, and visible current-team context.
+- Optimize common pick entry for speed and visible current-team context. Draft buttons save in one click without a confirmation dialog; prevent accidental double submission and rely on the prominent undo/correction workflow for mistakes.
 - Keep current pick, our next pick, available players, recommendations, board, and rosters readable under time pressure.
 - Make destructive/corrective actions explicit and easy to verify.
 - Preserve manual fallbacks for all external-data and AI features.

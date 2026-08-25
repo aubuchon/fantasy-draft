@@ -4,7 +4,7 @@ import hashlib
 import logging
 import random
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol, Sequence
 
 from sqlalchemy import select
@@ -320,6 +320,10 @@ class RecommendationSet:
     latency_ms: int | None = None
     model_used: str | None = None
     reasoning_effort: str | None = None
+    is_fallback: bool = False
+    fallback_reason: str | None = None
+    configured_model: str | None = None
+    configured_timeout_seconds: float | None = None
 
 
 class StrategicAdvisor(Protocol):
@@ -336,16 +340,34 @@ class ResilientStrategicAdvisor:
         except Exception as exc:
             if type(exc).__name__ == "AdvisorUnavailable":
                 logger.info("AI unavailable; using deterministic fallback: %s", exc)
+                reason = str(exc)
             else:
                 logger.warning("Strategic advisor failed; using deterministic fallback", exc_info=True)
-            return self.fallback.recommend(state, evaluated)
+                reason = f"AI request failed ({type(exc).__name__})."
+            return replace(
+                self.fallback.recommend(state, evaluated),
+                is_fallback=True,
+                fallback_reason=reason,
+                configured_model=getattr(self.primary, "model", None),
+                configured_timeout_seconds=getattr(
+                    self.primary, "timeout_seconds", None
+                ),
+                reasoning_effort=getattr(self.primary, "reasoning_effort", None),
+            )
 
 
 class OfflineStrategicAdvisor:
     def recommend(self, state: DraftState, evaluated: Sequence[EvaluatedPlayer]) -> RecommendationSet:
         pool = list(evaluated[:30])
         if not pool:
-            return RecommendationSet([], None, "No available players.", "AI unavailable — quantitative fallback")
+            return RecommendationSet(
+                [],
+                None,
+                "No available players.",
+                "AI unavailable — quantitative fallback",
+                is_fallback=True,
+                fallback_reason="No available candidates were provided to the advisor.",
+            )
         selected: set[str] = set()
 
         def choose(category: str, key, reason) -> Recommendation | None:
@@ -370,4 +392,5 @@ class OfflineStrategicAdvisor:
             recommendations, recommendations[0] if recommendations else None,
             f"Monitor {positions or 'the next value tier'} and recalculate after every pick.",
             "AI unavailable — quantitative fallback",
+            is_fallback=True,
         )

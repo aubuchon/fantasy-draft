@@ -21,8 +21,8 @@ class AppSettings:
     cache_dir: Path = PROJECT_ROOT / "instance" / "cache"
     backup_dir: Path = PROJECT_ROOT / "instance" / "backups"
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5.6"
-    openai_live_timeout_seconds: float = 5.0
+    openai_model: str = "gpt-5.6-terra"
+    openai_live_timeout_seconds: float = 25.0
     openai_diagnostic_timeout_seconds: float = 30.0
     openai_reasoning_effort: str = "low"
     openai_prefetch_picks: int = 3
@@ -54,10 +54,10 @@ class AppSettings:
             cache_dir=Path(os.getenv("FANTASY_DRAFT_CACHE_DIR", PROJECT_ROOT / "instance" / "cache")),
             backup_dir=Path(os.getenv("FANTASY_DRAFT_BACKUP_DIR", PROJECT_ROOT / "instance" / "backups")),
             openai_api_key=os.getenv("OPENAI_API_KEY") or None,
-            openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6"),
+            openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
             openai_live_timeout_seconds=float(os.getenv(
                 "OPENAI_LIVE_TIMEOUT_SECONDS",
-                os.getenv("OPENAI_TIMEOUT_SECONDS", "5"),
+                os.getenv("OPENAI_TIMEOUT_SECONDS", "25"),
             )),
             openai_diagnostic_timeout_seconds=float(os.getenv(
                 "OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS", "30"

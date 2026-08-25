@@ -119,8 +119,8 @@ class OpenAIStrategicAdvisor:
         session_factory: sessionmaker[Session],
         *,
         api_key: str | None,
-        model: str = "gpt-5.6",
-        timeout_seconds: float = 5.0,
+        model: str = "gpt-5.6-terra",
+        timeout_seconds: float = 25.0,
         reasoning_effort: str = "low",
         prefetch_picks: int = 3,
         client: ResponsesClient | None = None,
@@ -239,6 +239,8 @@ class OpenAIStrategicAdvisor:
             latency_ms=latency_ms,
             model_used=model_used or self.model,
             reasoning_effort=reasoning_effort or self.reasoning_effort,
+            configured_model=self.model,
+            configured_timeout_seconds=self.timeout_seconds,
         )
 
     def _cached(

@@ -77,6 +77,14 @@
 
   <aside class="panel recommendations">
     <div class="panel-heading"><div><p class="eyebrow">{{ recommendations.source }}</p><h2>Strategy recommendations</h2></div></div>
+    {% if recommendations.is_fallback %}
+    <div class="ai-fallback-alert" role="alert">
+      <strong>AI FALLBACK ACTIVE</strong>
+      <span>These are deterministic quantitative recommendations.</span>
+      {% if recommendations.fallback_reason %}<small>{{ recommendations.fallback_reason }}</small>{% endif %}
+      {% if recommendations.configured_model %}<small>Attempted {{ recommendations.configured_model }} · {{ recommendations.reasoning_effort or "configured" }} reasoning · {{ "%g"|format(recommendations.configured_timeout_seconds) }}s timeout</small>{% endif %}
+    </div>
+    {% endif %}
     {% if recommendations.preferred %}
     <div class="preferred"><span>Recommendation</span><strong>{{ recommendations.preferred.player.name }}</strong><small>{{ recommendations.overall_confidence or recommendations.preferred.confidence }}% confidence{% if recommendations.latency_ms %} · {{ recommendations.latency_ms }} ms{% endif %}</small>{% if recommendations.reason %}<p>{{ recommendations.reason }}</p>{% endif %}</div>
     {% endif %}

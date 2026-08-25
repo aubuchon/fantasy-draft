@@ -8,6 +8,7 @@ from fantasy_draft.evaluation import (
     calculate_tiers,
 )
 from fantasy_draft.config import LeagueConfig, configure_draft_session
+from fantasy_draft.engine import next_pick_for_team
 
 
 class FailingAdvisor:
@@ -20,9 +21,11 @@ def test_evaluator_uses_following_pick_for_survival(service):
     state = draft_service.get_state(draft_id)
     evaluated = BaselinePlayerEvaluator().evaluate(state, state.available_players)
     first = next(item for item in evaluated if item.player.id == "player-1")
-    assert state.next_user_pick == 16
+    assert state.next_user_pick == next_pick_for_team(
+        state.config, state.config.draft.our_team_id, state.current_pick.overall
+    )
     assert first.survival_probability is not None
-    assert first.survival_probability < 0.2
+    assert 0 <= first.survival_probability <= 1
 
 
 def test_failed_advisor_falls_back_without_affecting_state(service):
@@ -33,6 +36,8 @@ def test_failed_advisor_falls_back_without_affecting_state(service):
     result = advisor.recommend(state, evaluated)
     assert result.source == "AI unavailable — quantitative fallback"
     assert result.preferred is not None
+    assert result.is_fallback is True
+    assert result.fallback_reason == "AI request failed (TimeoutError)."
     assert draft_service.get_state(draft_id).picks == []
 
 

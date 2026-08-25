@@ -64,12 +64,15 @@ def test_valid_structured_result_is_persisted_and_cached(service):
     advisor = OpenAIStrategicAdvisor(
         session_factory, api_key="test-value", client=SimpleNamespace(responses=responses)
     )
-    first = advisor.recommend(state, evaluated)
-    second = advisor.recommend(state, evaluated)
+    first = advisor.recommend(state, evaluated, force=True)
+    second = advisor.recommend(state, evaluated, force=True)
     assert first.preferred.player.id == evaluated[0].player.id
     assert first.overall_confidence == 84
     assert first.model_used == "gpt-5.6-sol"
     assert first.reasoning_effort == "low"
+    assert first.is_fallback is False
+    assert first.configured_model == "gpt-5.6-terra"
+    assert first.configured_timeout_seconds == 25
     assert second.preferred.player.id == first.preferred.player.id
     assert responses.calls == 1
 
@@ -77,7 +80,9 @@ def test_valid_structured_result_is_persisted_and_cached(service):
 def test_missing_key_uses_no_network(service):
     state, evaluated, session_factory = setup_state(service)
     with pytest.raises(AdvisorUnavailable, match="OPENAI_API_KEY"):
-        OpenAIStrategicAdvisor(session_factory, api_key=None).recommend(state, evaluated)
+        OpenAIStrategicAdvisor(session_factory, api_key=None).recommend(
+            state, evaluated, force=True
+        )
 
 
 def test_invented_or_wrong_candidate_is_rejected(service):
@@ -89,7 +94,7 @@ def test_invented_or_wrong_candidate_is_rejected(service):
         client=SimpleNamespace(responses=FakeResponses(valid_output(ids))),
     )
     with pytest.raises(AdvisorValidationError, match="outside"):
-        advisor.recommend(state, evaluated)
+        advisor.recommend(state, evaluated, force=True)
 
 
 def test_drafted_player_from_stale_candidate_list_is_rejected(service):
@@ -115,11 +120,17 @@ def test_timeout_and_provider_errors_fall_back(service, error):
     primary = OpenAIStrategicAdvisor(
         session_factory,
         api_key="test-value",
+        prefetch_picks=999,
         client=SimpleNamespace(responses=FakeResponses(error=error)),
     )
     result = ResilientStrategicAdvisor(primary, OfflineStrategicAdvisor()).recommend(state, evaluated)
     assert result.source == "AI unavailable — quantitative fallback"
     assert result.preferred is not None
+    assert result.is_fallback is True
+    assert result.fallback_reason == f"AI request failed ({type(error).__name__})."
+    assert result.configured_model == "gpt-5.6-terra"
+    assert result.configured_timeout_seconds == 25
+    assert result.reasoning_effort == "low"
 
 
 def test_schema_rejects_invalid_categories_and_json():
@@ -142,11 +153,11 @@ def test_diagnostic_bypasses_cache_and_reports_configuration(service):
         reasoning_effort="low",
         client=SimpleNamespace(responses=responses),
     )
-    advisor.recommend(state, evaluated)
+    advisor.recommend(state, evaluated, force=True)
     diagnostic = advisor.diagnose(state, evaluated)
     assert responses.calls == 2
     assert diagnostic.success is True
-    assert diagnostic.configured_model == "gpt-5.6"
+    assert diagnostic.configured_model == "gpt-5.6-terra"
     assert diagnostic.model_used == "gpt-5.6-sol"
     assert diagnostic.reasoning_effort == "low"
     assert diagnostic.timeout_seconds == 30

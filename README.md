@@ -63,7 +63,7 @@ The application reads process environment variables and never exposes provider k
 ```bash
 export FANTASYPROS_API_KEY='...'
 export OPENAI_API_KEY='...'
-export OPENAI_MODEL='gpt-5.6'
+export OPENAI_MODEL='gpt-5.6-terra'
 ```
 
 Important optional settings include:
@@ -71,7 +71,7 @@ Important optional settings include:
 - `FANTASY_DRAFT_CONFIG`, `FANTASY_DRAFT_DATABASE_URL`, `FANTASY_DRAFT_PLAYERS`
 - `FANTASYPROS_DATA_MODE=auto|sample|production`
 - `FANTASYPROS_TIMEOUT_SECONDS=10`
-- `OPENAI_MODEL=gpt-5.6`, `OPENAI_LIVE_TIMEOUT_SECONDS=5`
+- `OPENAI_MODEL=gpt-5.6-terra`, `OPENAI_LIVE_TIMEOUT_SECONDS=25`
 - `OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS=30`
 - `OPENAI_REASONING_EFFORT=low`, `OPENAI_PREFETCH_PICKS=3`
 - `SURVIVAL_SIMULATIONS=2000`
@@ -100,9 +100,11 @@ After a successful pre-draft refresh, the current empty draft pins those import-
 
 Raw projection fields flow through `scoring.py` and the draft's configuration snapshot. Provider fantasy-point totals are never authoritative. The evaluator derives replacement demand from team count, starters, configurable FLEX/SUPERFLEX eligibility, and part of configured bench demand; then computes VOR, tier cliffs, scarcity, and a seeded Monte Carlo next-pick survival probability.
 
-The OpenAI advisor receives only the top 20 valid quantitative candidates plus concise league/draft/roster/opponent context. It uses the Responses API Structured Outputs schema, defaults to `gpt-5.6` with `low` reasoning effort, makes no draft mutations, caches identical live-draft state, and starts prefetching as our pick approaches. Missing key, timeout, network failure, rate limit, invalid schema, or invented/drafted ID all result in the offline quantitative recommendations.
+The OpenAI advisor receives only the top 20 valid quantitative candidates plus concise league/draft/roster/opponent context. It uses the Responses API Structured Outputs schema, defaults to `gpt-5.6-terra` with `low` reasoning effort, makes no draft mutations, caches identical live-draft state, and starts prefetching as our pick approaches. Missing key, timeout, network failure, rate limit, invalid schema, or invented/drafted ID all result in the offline quantitative recommendations with a prominent `AI FALLBACK ACTIVE` warning.
 
-Live and diagnostic latency budgets are deliberately separate. `OPENAI_LIVE_TIMEOUT_SECONDS` defaults to five seconds and uses zero retries so draft decisions fall back immediately. `OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS` defaults to 30 seconds, also uses zero retries, bypasses the live recommendation cache, and reports configured/returned model, reasoning effort, timeout, measured latency, Structured Output validation, and a credential-safe failure category. The deprecated `OPENAI_TIMEOUT_SECONDS` is accepted only as a live-timeout fallback and never controls readiness.
+Live and diagnostic latency budgets are deliberately separate. `OPENAI_LIVE_TIMEOUT_SECONDS` defaults to 25 seconds and uses zero retries, leaving time within a 30-second decision budget to read the deterministic fallback and act. `OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS` defaults to 30 seconds, also uses zero retries, bypasses the live recommendation cache, and reports configured/returned model, reasoning effort, timeout, measured latency, Structured Output validation, and a credential-safe failure category. The deprecated `OPENAI_TIMEOUT_SECONDS` is accepted only as a live-timeout fallback and never controls readiness. Environment changes take effect after restarting the server.
+
+`gpt-5.6-terra` with `low` reasoning is the recommended live-draft balance. Use `gpt-5.6-luna` if the lowest latency and cost matter more than analysis quality. The `gpt-5.6` alias selects flagship `gpt-5.6-sol`; reserve it for offline analysis or testing because it is a poorer fit for a hard live clock.
 
 ## Readiness, export, and backup
 

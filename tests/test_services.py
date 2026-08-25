@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import func, select
 
+from fantasy_draft.engine import next_pick_for_team
 from fantasy_draft.models import DraftPick
 from fantasy_draft.services import DraftConflictError, DraftService
 
@@ -17,8 +18,11 @@ def test_pick_updates_availability_and_correct_team(service):
     assert state.current_pick.overall == 2
     assert state.current_team_id == "team-2"
     assert state.team_needs["team-1"].count("RB") == 1
-    assert state.next_user_pick == 16
-    assert state.picks_until_user_pick == 14
+    expected_next = next_pick_for_team(
+        state.config, state.config.draft.our_team_id, state.current_pick.overall
+    )
+    assert state.next_user_pick == expected_next
+    assert state.picks_until_user_pick == expected_next - state.current_pick.overall
     assert len(state.team_remaining_slots["team-1"]) == 16
 
 

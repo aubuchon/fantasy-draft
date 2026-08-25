@@ -7,9 +7,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll("[data-pick-form]").forEach((form) => {
     form.addEventListener("submit", (event) => {
-      const row = form.closest("tr");
-      const name = row?.querySelector("td:nth-child(2) strong")?.textContent || "this player";
-      if (!window.confirm(`Draft ${name} with the current pick?`)) event.preventDefault();
+      if (form.dataset.submitting === "true") {
+        event.preventDefault();
+        return;
+      }
+      form.dataset.submitting = "true";
+      const button = form.querySelector("button[type='submit']");
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Saving…";
+      }
     });
   });
 
@@ -27,4 +34,3 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
-

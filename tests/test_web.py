@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from fantasy_draft.config import configure_draft_session, load_league_config
+from fantasy_draft.models import Player
 from fantasy_draft.settings import AppSettings
 from fantasy_draft.web import create_app
 
@@ -56,7 +58,16 @@ def test_live_draft_web_and_api_flow(tmp_path):
         database_url=f"sqlite:///{tmp_path / 'web.db'}",
         player_data_path=root / "data" / "players.csv",
     )
-    with TestClient(create_app(settings)) as client:
+    app = create_app(settings)
+    with TestClient(app) as client:
+        draft_state = app.state.draft_service.get_state(
+            app.state.draft_service.current_draft_id()
+        )
+        draft_season = draft_state.season
+        with app.state.session_factory.begin() as session:
+            player = session.get(Player, "sample-josh-allen")
+            player.birth_date = date(date.today().year - 30, 1, 1)
+            player.draft_year = draft_season
         response = client.get("/")
         assert response.status_code == 200
         assert "On the clock" in response.text
@@ -67,6 +78,14 @@ def test_live_draft_web_and_api_flow(tmp_path):
         assert "data-pick-form" not in response.text
         assert "/static/app.js?v=" in response.text
         assert "/static/style.css?v=" in response.text
+        assert '<select name="position"' not in response.text
+        assert 'class="position-filter-button active"' in response.text
+        assert '>ALL</a>' in response.text
+        assert '>QB</a>' in response.text
+        assert '<th>Age</th>' in response.text
+        assert 'title="NFL experience; R means rookie">Yr</th>' in response.text
+        assert ">30</td>" in response.text
+        assert ">R</td>" in response.text
 
         script = client.get("/static/app.js").text
         assert "Draft ${name} with the current pick?" not in script
@@ -85,6 +104,13 @@ def test_live_draft_web_and_api_flow(tmp_path):
         assert "team-1" in state["team_needs"]
         assert len(state["team_remaining_slots"]["team-1"]) == 16
         assert all(player["id"] != "sample-bijan-robinson" for player in state["available_players"])
+        josh = next(
+            player for player in state["available_players"]
+            if player["id"] == "sample-josh-allen"
+        )
+        assert josh["age"] == 30
+        assert josh["experience"] == "R"
+        assert josh["draft_year"] == draft_season
 
         duplicate = client.post("/api/picks", json={"player_id": "sample-bijan-robinson"})
         assert duplicate.status_code == 409
@@ -111,6 +137,35 @@ def test_live_draft_web_and_api_flow(tmp_path):
         readiness = client.post("/readiness")
         assert readiness.status_code == 200
         assert "DRAFT ENGINE" in readiness.text
+
+
+def test_position_buttons_filter_and_pick_resets_to_all(tmp_path):
+    root = Path(__file__).parents[1]
+    settings = AppSettings(
+        league_config_path=root / "config" / "league.yaml",
+        database_url=f"sqlite:///{tmp_path / 'position-buttons.db'}",
+        player_data_path=root / "data" / "players.csv",
+    )
+    app = create_app(settings)
+    with TestClient(app) as client:
+        filtered = client.get("/?position=RB&sort=rank")
+        assert filtered.status_code == 200
+        assert 'position-filter-button pos-rb active' in filtered.text
+        assert "Bijan Robinson" in filtered.text
+        assert "Josh Allen" not in filtered.text
+
+        state = app.state.draft_service.get_state(
+            app.state.draft_service.current_draft_id()
+        )
+        drafted = client.post(
+            "/picks",
+            data={"player_id": state.available_players[0].id},
+            follow_redirects=True,
+        )
+        assert drafted.status_code == 200
+        assert 'class="position-filter-button active"' in drafted.text
+        assert 'position-filter-button pos-rb active' not in drafted.text
+        assert 'name="position" value=""' in drafted.text
 
 
 def test_health_endpoint(tmp_path):

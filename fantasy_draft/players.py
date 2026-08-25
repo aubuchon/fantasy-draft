@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import select
@@ -18,7 +19,7 @@ OPTIONAL_FLOAT_FIELDS = (
     "role_certainty",
     "injury_risk",
 )
-OPTIONAL_INT_FIELDS = ("overall_rank", "position_rank", "tier")
+OPTIONAL_INT_FIELDS = ("overall_rank", "position_rank", "tier", "draft_year")
 
 
 def _optional_number(row: dict[str, str], field: str, converter):
@@ -38,6 +39,8 @@ def import_players(session: Session, path: str | Path) -> int:
                 session.add(player)
             player.name = row["name"].strip()
             player.nfl_team = row.get("nfl_team", "").strip() or None
+            birth_date = row.get("birth_date", "").strip()
+            player.birth_date = date.fromisoformat(birth_date) if birth_date else None
             player.primary_position = row["position"].strip().upper()
             eligible = row.get("eligible_positions", "").strip()
             player.eligible_positions = (
@@ -56,8 +59,25 @@ def import_players(session: Session, path: str | Path) -> int:
     return count
 
 
+def age_on(birth_date: date | None, as_of: date | None = None) -> int | None:
+    if birth_date is None:
+        return None
+    reference = as_of or date.today()
+    if birth_date > reference:
+        return None
+    return reference.year - birth_date.year - (
+        (reference.month, reference.day) < (birth_date.month, birth_date.day)
+    )
+
+
+def experience_label(draft_year: int | None, season: int | None) -> str:
+    if draft_year is None or season is None or draft_year > season:
+        return "—"
+    years = season - draft_year
+    return "R" if years == 0 else str(years)
+
+
 def seed_players_if_empty(session: Session, path: str | Path) -> int:
     if session.scalar(select(Player.id).limit(1)) is not None:
         return 0
     return import_players(session, path)
-

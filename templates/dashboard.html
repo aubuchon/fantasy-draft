@@ -40,12 +40,7 @@
     </div>
     <form class="filters" method="get">
       <label><span>Search</span><input id="player-search" name="search" value="{{ search }}" placeholder="Player name" autocomplete="off"></label>
-      <label><span>Position</span>
-        <select name="position" onchange="this.form.submit()">
-          <option value="">All</option>
-          {% for pos in positions %}<option {% if position == pos %}selected{% endif %}>{{ pos }}</option>{% endfor %}
-        </select>
-      </label>
+      <input type="hidden" name="position" value="{{ position }}">
       <label><span>Sort</span>
         <select name="sort" onchange="this.form.submit()">
           <option value="rank" {% if sort == "rank" %}selected{% endif %}>Overall rank</option>
@@ -56,20 +51,30 @@
       </label>
       <button class="button" type="submit">Find</button>
     </form>
+    <nav class="position-filter" aria-label="Filter available players by position">
+      <span>Position</span>
+      <div class="position-filter-buttons">
+        <a class="position-filter-button {% if not position %}active{% endif %}" href="{{ position_urls[''] }}" {% if not position %}aria-current="page"{% endif %}>ALL</a>
+        {% for pos in positions %}<a class="position-filter-button pos-{{ pos|lower }} {% if position == pos %}active{% endif %}" href="{{ position_urls[pos] }}" {% if position == pos %}aria-current="page"{% endif %}>{{ pos }}</a>{% endfor %}
+      </div>
+    </nav>
     <div class="table-wrap player-list">
       <table>
-        <thead><tr><th>Rank</th><th>Player</th><th>Pos</th><th>ADP</th><th>Tier</th><th>Proj</th><th>VOR</th><th>Survive</th><th></th></tr></thead>
+        <thead><tr><th>Rank</th><th>Player</th><th>Pos</th><th>Age</th><th title="NFL experience; R means rookie">Yr</th><th>ADP</th><th>Tier</th><th>Proj</th><th>VOR</th><th>Survive</th><th></th></tr></thead>
         <tbody>
         {% for player in available %}
           <tr>
             <td>{{ player.overall_rank or "—" }}</td>
             <td><strong>{{ player.name }}</strong><small>{{ player.nfl_team or "FA" }}</small></td>
             <td><span class="position pos-{{ player.primary_position|lower }}">{{ player.primary_position }}</span></td>
+            {% set demographics = player_demographics.get(player.id) %}
+            <td>{{ demographics.age if demographics and demographics.age is not none else "—" }}</td>
+            <td>{{ demographics.experience if demographics else "—" }}</td>
             {% set analytic = evaluation_by_id.get(player.id) %}
             <td>{{ analytic.adp if analytic and analytic.adp is not none else player.adp or "—" }}</td><td>{{ analytic.our_tier if analytic else player.tier or "—" }}</td><td>{{ analytic.projected_points if analytic else player.projected_points or "—" }}</td><td>{{ "%+.1f"|format(analytic.vor) if analytic else "—" }}</td><td>{{ "%.0f%%"|format(analytic.survival_probability * 100) if analytic and analytic.survival_probability is not none else "—" }}</td>
             <td>{% if state.draft_status == "active" %}<form action="/picks" method="post" data-instant-pick-form><input type="hidden" name="player_id" value="{{ player.id }}"><button class="button primary" type="submit">Draft</button></form>{% endif %}</td>
           </tr>
-        {% else %}<tr><td colspan="9">No available players match.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="11">No available players match.</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>

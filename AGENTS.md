@@ -20,6 +20,7 @@ The current product is a fast, dependable copilot for a manually entered live fa
 - Wrap external/model advisors with the resilient fallback boundary; never let an advisor exception escape into draft entry or board rendering.
 - Provider integrations must map external records to canonical player IDs. Do not couple the draft engine to a ranking, ADP, projection, news, or model provider.
 - Internal player IDs belong to this application. Provider IDs and player names are never canonical primary keys. Prefer exact external-ID matching; quarantine ambiguous fallback matches.
+- Store player birth date and draft year from audited provider/crosswalk fields; derive display age and experience rather than freezing time-dependent values in source code.
 - Calculate fantasy points from raw provider statistics through the snapshotted league scoring configuration. Provider generic fantasy points are informational only.
 - Preserve provider import audits, data-mode/freshness labels, source checksums/caches, and unmatched-review records. External failure must leave the last usable local data intact.
 - Validate every AI response against a strict schema and the deterministic available-candidate allowlist. Use bounded timeouts, avoid page-load API spam, and persist only validated advisory history.

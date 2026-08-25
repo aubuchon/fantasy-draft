@@ -5,8 +5,9 @@ import gzip
 import hashlib
 import io
 import json
+import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,9 @@ from fantasy_draft.providers import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 def _float(record: dict, *keys: str) -> float | None:
     for key in keys:
         value = record.get(key)
@@ -49,6 +53,20 @@ def _float(record: dict, *keys: str) -> float | None:
 def _int(record: dict, *keys: str) -> int | None:
     value = _float(record, *keys)
     return int(value) if value is not None else None
+
+
+def _date(record: dict, *keys: str) -> date | None:
+    for key in keys:
+        value = record.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            if isinstance(value, (int, float)) or str(value).isdigit():
+                return datetime.fromtimestamp(float(value), tz=timezone.utc).date()
+            return date.fromisoformat(str(value)[:10])
+        except (ValueError, TypeError, OverflowError, OSError):
+            continue
+    return None
 
 
 def detect_data_mode(raw: dict, configured: str) -> str:
@@ -178,6 +196,13 @@ class DataImportService:
                 player.eligible_positions = [position]
                 player.active = True
                 player.status = record.get("status") or player.status
+                player.birth_date = (
+                    _date(record, "birthdate", "birth_date", "birthdatetime")
+                    or player.birth_date
+                )
+                player.draft_year = (
+                    _int(record, "draft_class", "draft_year") or player.draft_year
+                )
                 player.overall_rank = _int(record, "rank_ecr", "rank_ecr_ppr") or player.overall_rank
                 player.adp = _float(record, "rank_adp", "rank_adp_ppr") or player.adp
                 self.identity.attach_ids(session, player, ids, "fantasypros-players")
@@ -185,6 +210,50 @@ class DataImportService:
             run.completed_at = utc_now()
             run.metadata_json = payload.metadata
             return run.id
+
+    def backfill_cached_player_demographics(self) -> int:
+        """Normalize age/experience source fields from the latest audited player cache."""
+        with self.session_factory() as session:
+            run = session.scalar(
+                select(ImportRun)
+                .where(
+                    ImportRun.provider == "fantasypros",
+                    ImportRun.dataset == "players",
+                    ImportRun.status.in_(["success", "cached"]),
+                )
+                .order_by(ImportRun.id.desc())
+                .limit(1)
+            )
+            cache_path = Path(run.raw_cache_path) if run and run.raw_cache_path else None
+        if cache_path is None or not cache_path.exists():
+            return 0
+        try:
+            with gzip.open(cache_path, "rt", encoding="utf-8") as handle:
+                raw = json.load(handle)
+            records = list(raw.get("players") or [])
+        except (OSError, ValueError, TypeError):
+            logger.warning("Could not read cached FantasyPros demographics", exc_info=True)
+            return 0
+
+        updated = 0
+        with self.session_factory.begin() as session:
+            for record in records:
+                player = self._fantasypros_player(session, record)
+                if player is None:
+                    continue
+                changed = False
+                birth_date = _date(
+                    record, "birthdate", "birth_date", "birthdatetime"
+                )
+                draft_year = _int(record, "draft_class", "draft_year")
+                if player.birth_date is None and birth_date is not None:
+                    player.birth_date = birth_date
+                    changed = True
+                if player.draft_year is None and draft_year is not None:
+                    player.draft_year = draft_year
+                    changed = True
+                updated += int(changed)
+        return updated
 
     def _fantasypros_player(self, session: Session, record: dict) -> Player | None:
         fpid = clean_external_id(record.get("player_id") or record.get("fpid"))
@@ -309,6 +378,12 @@ class DataImportService:
                     continue
                 try:
                     self.identity.attach_ids(session, match.player, ids, "dynastyprocess-db_playerids")
+                    match.player.birth_date = (
+                        _date(record, "birthdate") or match.player.birth_date
+                    )
+                    match.player.draft_year = (
+                        _int(record, "draft_year") or match.player.draft_year
+                    )
                     run.records_matched += 1
                 except ValueError:
                     self._unmatched(session, run, record, "conflicting-crosswalk-id")

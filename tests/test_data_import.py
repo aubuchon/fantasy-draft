@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import date
 
 import httpx
 import pytest
@@ -69,6 +70,7 @@ def test_player_import_uses_canonical_ids_and_prevents_duplicates(service, tmp_p
     record = {
         "player_id": 123, "player_name": "New Runner", "position_id": "RB",
         "team_id": "CHI", "player_yahoo_id": "999", "rank_ecr": 25,
+        "birthdate": "2002-03-04", "draft_class": 2025,
     }
     first = importer.import_players_payload(player_payload([record]))
     second = importer.import_players_payload(player_payload([record]))
@@ -80,8 +82,39 @@ def test_player_import_uses_canonical_ids_and_prevents_duplicates(service, tmp_p
         assert session.scalar(select(func.count(PlayerExternalId.id)).where(
             PlayerExternalId.provider == "fantasypros", PlayerExternalId.external_id == "123"
         )) == 1
-        assert session.get(Player, external.player_id).external_ids["yahoo"] == "999"
+        player = session.get(Player, external.player_id)
+        assert player.external_ids["yahoo"] == "999"
+        assert player.birth_date == date(2002, 3, 4)
+        assert player.draft_year == 2025
     assert first != second
+
+
+def test_cached_player_payload_backfills_new_demographic_columns(service, tmp_path):
+    _, _, session_factory = service
+    importer = DataImportService(session_factory, tmp_path, data_mode="test")
+    importer.import_players_payload(player_payload([{
+        "player_id": 321,
+        "player_name": "Cached Rookie",
+        "position_id": "WR",
+        "team_id": "DET",
+        "birthdate": "2003-11-12",
+        "draft_class": 2030,
+    }]))
+    with session_factory.begin() as session:
+        external = session.scalar(select(PlayerExternalId).where(
+            PlayerExternalId.provider == "fantasypros",
+            PlayerExternalId.external_id == "321",
+        ))
+        player_id = external.player_id
+        player = session.get(Player, player_id)
+        player.birth_date = None
+        player.draft_year = None
+
+    assert importer.backfill_cached_player_demographics() == 1
+    with session_factory() as session:
+        player = session.get(Player, player_id)
+        assert player.birth_date == date(2003, 11, 12)
+        assert player.draft_year == 2030
 
 
 def test_ambiguous_name_is_sent_to_review(service, tmp_path):

@@ -28,7 +28,7 @@ from fantasy_draft.llm import OpenAIStrategicAdvisor, classify_openai_failure
 from fantasy_draft.operations import DatabaseBackupService, DraftExporter
 from fantasy_draft.readiness import ReadinessService
 from fantasy_draft.migrations import run_migrations
-from fantasy_draft.players import seed_players_if_empty
+from fantasy_draft.players import age_on, experience_label, seed_players_if_empty
 from fantasy_draft.providers import DynastyProcessProvider, FantasyProsProvider
 from fantasy_draft.services import DraftNotFoundError, DraftService, PlayerNotFoundError
 from fantasy_draft.settings import AppSettings, PROJECT_ROOT
@@ -85,6 +85,9 @@ def _state_payload(state, recommendations, evaluated=()) -> dict:
                 "name": player.name,
                 "nfl_team": player.nfl_team,
                 "position": player.primary_position,
+                "age": age_on(player.birth_date),
+                "experience": experience_label(player.draft_year, state.season),
+                "draft_year": player.draft_year,
                 "overall_rank": player.overall_rank,
                 "adp": player.adp,
                 "tier": player.tier,
@@ -200,6 +203,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         config = load_league_config(settings.league_config_path)
         with session_factory.begin() as session:
             seed_players_if_empty(session, settings.player_data_path)
+        import_service.backfill_cached_player_demographics()
         service.get_or_create_active_draft(config)
         yield
         engine.dispose()
@@ -255,6 +259,21 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             if slot.draftable
             for eligible in slot.eligible_positions
         })
+        position_urls = {}
+        for selected_position in ["", *positions]:
+            query = {"sort": sort}
+            if search:
+                query["search"] = search
+            if selected_position:
+                query["position"] = selected_position
+            position_urls[selected_position] = f"/?{urlencode(query)}"
+        player_demographics = {
+            player.id: {
+                "age": age_on(player.birth_date),
+                "experience": experience_label(player.draft_year, state.season),
+            }
+            for player in available
+        }
         return templates.TemplateResponse(
             request=request,
             name="dashboard.html",
@@ -267,6 +286,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "current_team": current_team,
                 "teams_before": list(dict.fromkeys(state.teams_before_user_pick)),
                 "positions": positions,
+                "position_urls": position_urls,
+                "player_demographics": player_demographics,
                 "pick_lookup": pick_lookup,
                 "rosters": rosters,
                 "search": search,

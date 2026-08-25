@@ -93,6 +93,8 @@ Refresh is explicit—never part of page rendering—and writes versioned gzip s
 .venv/bin/fantasy-draft-ops refresh-data
 ```
 
+The available-player table shows provider-backed age and NFL experience. `Yr` is the number of completed league years relative to the draft session's season; `R` means the player's draft year matches that season. Existing installations add these fields in place and backfill them from the latest local FantasyPros player cache during startup, without making a network request.
+
 The DynastyProcess `db_playerids.csv` crosswalk is downloaded during refresh and cached rather than committed as a static snapshot. Source: <https://github.com/dynastyprocess/data>, GPL-3.0. Exact external IDs are matched before normalized name/position/team fallback; ambiguous records remain visible in **Data health** for review.
 
 After a successful pre-draft refresh, the current empty draft pins those import-run IDs. Data cannot be repinned after its first pick; create a new draft to use a newer snapshot. This preserves why a player was valued on draft night.

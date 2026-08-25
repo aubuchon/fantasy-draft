@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from fantasy_draft.database import Base
@@ -18,6 +18,8 @@ class Player(Base):
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     name: Mapped[str] = mapped_column(String(120), index=True)
     nfl_team: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    draft_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     primary_position: Mapped[str] = mapped_column(String(10), index=True)
     eligible_positions: Mapped[list[str]] = mapped_column(JSON, default=list)
     external_ids: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)

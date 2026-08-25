@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import date
+import hashlib
 from pathlib import Path
+from threading import Lock
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
@@ -22,7 +24,7 @@ from fantasy_draft.evaluation import (
     ResilientStrategicAdvisor,
 )
 from fantasy_draft.models import Player
-from fantasy_draft.llm import OpenAIStrategicAdvisor
+from fantasy_draft.llm import OpenAIStrategicAdvisor, classify_openai_failure
 from fantasy_draft.operations import DatabaseBackupService, DraftExporter
 from fantasy_draft.readiness import ReadinessService
 from fantasy_draft.migrations import run_migrations
@@ -148,7 +150,6 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         model=settings.openai_model,
         timeout_seconds=settings.openai_live_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
-        prefetch_picks=settings.openai_prefetch_picks,
     )
     advisor = ResilientStrategicAdvisor(
         openai_advisor,
@@ -160,8 +161,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         model=settings.openai_model,
         timeout_seconds=settings.openai_diagnostic_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
-        prefetch_picks=settings.openai_prefetch_picks,
     )
+    advisor_lock = Lock()
     fantasypros_provider = FantasyProsProvider(
         settings.fantasypros_api_key,
         base_url=settings.fantasypros_base_url,
@@ -188,6 +189,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         openai_configured=bool(settings.openai_api_key),
     )
     templates = Jinja2Templates(directory=PROJECT_ROOT / "templates")
+    asset_digest = hashlib.sha256()
+    for asset in (PROJECT_ROOT / "static" / "style.css", PROJECT_ROOT / "static" / "app.js"):
+        asset_digest.update(asset.read_bytes())
+    templates.env.globals["asset_version"] = asset_digest.hexdigest()[:12]
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -205,6 +210,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.import_service = import_service
     app.state.readiness_service = readiness_service
+    app.state.openai_advisor = openai_advisor
 
     def active_draft_id() -> int:
         config = load_league_config(settings.league_config_path)
@@ -233,7 +239,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "projection": lambda player: -evaluation_by_id[player.id].projected_points,
             }
             available.sort(key=lambda player: (keys[sort](player), player.name))
-        recommendations = advisor.recommend(state, evaluated)
+        with advisor_lock:
+            recommendations = advisor.recommend(state, evaluated)
         teams = sorted(state.config.teams, key=lambda team: team.draft_slot)
         pick_lookup = {(pick.round_number, pick.team_id): pick for pick in state.picks}
         rosters = {
@@ -269,6 +276,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "error": error,
                 "drafts": service.list_drafts(),
                 "evaluation_by_id": evaluation_by_id,
+                "openai_models": settings.openai_live_models,
+                "active_openai_model": openai_advisor.model,
             },
         )
 
@@ -414,6 +423,41 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         except (DraftRuleError, PlayerNotFoundError, DraftNotFoundError) as exc:
             return _redirect(error=str(exc))
 
+    @app.post("/advisor/retry")
+    def retry_advisor(model: str = Form()):
+        if model not in settings.openai_live_models:
+            return _redirect(error="That AI model is not enabled for live drafting.")
+        state = service.get_state(active_draft_id())
+        if state.current_team_id != state.config.draft.our_team_id:
+            return _redirect(
+                error="AI requests are available only while our team is on the clock."
+            )
+        evaluated = evaluator.evaluate(state, state.available_players)
+        try:
+            with advisor_lock:
+                openai_advisor.model = model
+                result = openai_advisor.recommend(
+                    state,
+                    evaluated,
+                    force=True,
+                    persist=True,
+                    use_cache=False,
+                )
+            return _redirect(
+                message=(
+                    f"AI recommendation updated with {result.model_used or model} "
+                    f"in {(result.latency_ms or 0) / 1000:.2f}s."
+                )
+            )
+        except Exception as exc:
+            category = classify_openai_failure(exc)
+            return _redirect(
+                error=(
+                    f"{model} failed ({category}); deterministic recommendations "
+                    "remain active. Choose another model or try again."
+                )
+            )
+
     @app.get("/drafts/{draft_id}/export.json")
     def export_json(draft_id: int):
         try:
@@ -460,7 +504,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def api_state():
         state = service.get_state(active_draft_id())
         evaluated = evaluator.evaluate(state, state.available_players)
-        recommendations = advisor.recommend(state, evaluated)
+        with advisor_lock:
+            recommendations = advisor.recommend(state, evaluated)
         return _state_payload(state, recommendations, evaluated)
 
     @app.post("/api/picks", status_code=201)

@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  document.querySelectorAll("[data-pick-form]").forEach((form) => {
+  document.querySelectorAll("[data-instant-pick-form]").forEach((form) => {
     form.addEventListener("submit", (event) => {
       if (form.dataset.submitting === "true") {
         event.preventDefault();
@@ -16,6 +16,16 @@ document.addEventListener("DOMContentLoaded", () => {
       if (button) {
         button.disabled = true;
         button.textContent = "Saving…";
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-ai-retry-form]").forEach((form) => {
+    form.addEventListener("submit", () => {
+      const button = form.querySelector("button[type='submit']");
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Asking AI…";
       }
     });
   });

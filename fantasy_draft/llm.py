@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -18,6 +19,9 @@ from fantasy_draft.evaluation import (
 )
 from fantasy_draft.models import RecommendationHistory
 from fantasy_draft.services import DraftState
+
+
+logger = logging.getLogger(__name__)
 
 
 class AdvisorUnavailable(RuntimeError):
@@ -137,7 +141,6 @@ class OpenAIStrategicAdvisor:
         model: str = "gpt-5.6-terra",
         timeout_seconds: float = 25.0,
         reasoning_effort: str = "low",
-        prefetch_picks: int = 3,
         client: ResponsesClient | None = None,
     ):
         self.session_factory = session_factory
@@ -145,7 +148,6 @@ class OpenAIStrategicAdvisor:
         self.model = model
         self.timeout_seconds = timeout_seconds
         self.reasoning_effort = reasoning_effort
-        self.prefetch_picks = prefetch_picks
         self.max_retries = 0
         self._client = client
 
@@ -340,6 +342,52 @@ class OpenAIStrategicAdvisor:
                 response_status="completed",
             )
 
+    def _cached_failure(self, state: DraftState, fingerprint: str) -> str | None:
+        with self.session_factory() as session:
+            history = session.scalar(
+                select(RecommendationHistory)
+                .where(
+                    RecommendationHistory.draft_id == state.draft_id,
+                    RecommendationHistory.request_fingerprint == fingerprint,
+                    RecommendationHistory.source == "openai_error",
+                )
+                .order_by(RecommendationHistory.id.desc())
+                .limit(1)
+            )
+            if history is None:
+                return None
+            return str(history.response.get("failure_category") or "unknown")
+
+    def _persist_failure(
+        self,
+        state: DraftState,
+        fingerprint: str,
+        candidates: Sequence[EvaluatedPlayer],
+        exc: Exception,
+        latency_ms: int,
+    ) -> None:
+        try:
+            with self.session_factory.begin() as session:
+                session.add(RecommendationHistory(
+                    draft_id=state.draft_id,
+                    overall_pick=state.current_pick.overall if state.current_pick else 0,
+                    source="openai_error",
+                    model=getattr(exc, "model_used", None) or self.model,
+                    request_fingerprint=fingerprint,
+                    candidates=[item.player.id for item in candidates],
+                    response={
+                        "failure_category": classify_openai_failure(exc),
+                        "exception_type": type(exc).__name__,
+                        "response_status": getattr(exc, "response_status", None),
+                    },
+                    latency_ms=latency_ms,
+                ))
+        except Exception:
+            logger.warning(
+                "Could not persist AI failure marker; deterministic fallback remains active",
+                exc_info=True,
+            )
+
     def recommend(
         self,
         state: DraftState,
@@ -358,12 +406,16 @@ class OpenAIStrategicAdvisor:
         if use_cache:
             if cached := self._cached(state, fingerprint, candidates):
                 return cached
+            if failure_category := self._cached_failure(state, fingerprint):
+                raise AdvisorUnavailable(
+                    f"Previous {self.model} attempt failed ({failure_category}). "
+                    "Use Try AI again to make another request."
+                )
         our_turn = state.current_team_id == state.config.draft.our_team_id
-        if not force and not our_turn and (
-            state.picks_until_user_pick is None
-            or state.picks_until_user_pick > self.prefetch_picks
-        ):
-            raise AdvisorUnavailable("AI prefetch begins as our pick approaches")
+        if not force and not our_turn:
+            raise AdvisorUnavailable(
+                "AI automatically runs only when our team is on the clock."
+            )
         if not self.api_key:
             raise AdvisorUnavailable("OPENAI_API_KEY is not configured")
         if self._client is None:
@@ -375,42 +427,50 @@ class OpenAIStrategicAdvisor:
                 max_retries=self.max_retries,
             )
         started = time.perf_counter()
-        response_format = self._response_format(candidates)
-        response = self._client.responses.parse(
-            model=self.model,
-            reasoning={"effort": self.reasoning_effort},
-            input=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a live fantasy draft strategist. Use only allowed candidate IDs. "
-                        "Deterministic state is authoritative. Be terse, distinguish value now from "
-                        "probability of surviving to the next pick, and never propose a roster mutation."
-                    ),
-                },
-                {"role": "user", "content": json.dumps(packet, separators=(",", ":"))},
-            ],
-            text_format=response_format,
-        )
-        latency_ms = round((time.perf_counter() - started) * 1000)
-        output = response.output_parsed
-        if output is None:
-            raise self._missing_output_error(response)
-        if not isinstance(output, LLMAdvisorOutput):
-            output = LLMAdvisorOutput.model_validate(output)
-        model_used = str(getattr(response, "model", None) or self.model)
-        response_reasoning = getattr(response, "reasoning", None)
-        reasoning_effort = str(
-            getattr(response_reasoning, "effort", None) or self.reasoning_effort
-        )
-        result = self._validate_and_convert(
-            output,
-            candidates,
-            latency_ms=latency_ms,
-            model_used=model_used,
-            reasoning_effort=reasoning_effort,
-            response_status=str(getattr(response, "status", None) or "completed"),
-        )
+        try:
+            response_format = self._response_format(candidates)
+            response = self._client.responses.parse(
+                model=self.model,
+                reasoning={"effort": self.reasoning_effort},
+                input=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a live fantasy draft strategist. Use only allowed candidate IDs. "
+                            "Deterministic state is authoritative. Be terse, distinguish value now from "
+                            "probability of surviving to the next pick, and never propose a roster mutation."
+                        ),
+                    },
+                    {"role": "user", "content": json.dumps(packet, separators=(",", ":"))},
+                ],
+                text_format=response_format,
+            )
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            output = response.output_parsed
+            if output is None:
+                raise self._missing_output_error(response)
+            if not isinstance(output, LLMAdvisorOutput):
+                output = LLMAdvisorOutput.model_validate(output)
+            model_used = str(getattr(response, "model", None) or self.model)
+            response_reasoning = getattr(response, "reasoning", None)
+            reasoning_effort = str(
+                getattr(response_reasoning, "effort", None) or self.reasoning_effort
+            )
+            result = self._validate_and_convert(
+                output,
+                candidates,
+                latency_ms=latency_ms,
+                model_used=model_used,
+                reasoning_effort=reasoning_effort,
+                response_status=str(getattr(response, "status", None) or "completed"),
+            )
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            if persist:
+                self._persist_failure(
+                    state, fingerprint, candidates, exc, latency_ms
+                )
+            raise
         if persist:
             with self.session_factory.begin() as session:
                 session.add(RecommendationHistory(

@@ -6,6 +6,7 @@ import httpx
 import pytest
 from openai import APITimeoutError
 
+from fantasy_draft.config import configure_draft_session
 from fantasy_draft.evaluation import (
     BaselinePlayerEvaluator,
     OfflineStrategicAdvisor,
@@ -57,6 +58,25 @@ def setup_state(service):
     draft_service, draft_id, session_factory = service
     state = draft_service.get_state(draft_id)
     evaluated = BaselinePlayerEvaluator(simulations=100).evaluate(state, state.available_players)
+    return state, evaluated, session_factory
+
+
+def setup_user_turn(service):
+    draft_service, draft_id, session_factory = service
+    state = draft_service.get_state(draft_id)
+    config = configure_draft_session(
+        state.config,
+        team_count=state.config.league.team_count,
+        our_draft_slot=2,
+    )
+    draft_id = draft_service.create_draft(config, name="Advisor unit test")
+    state = draft_service.get_state(draft_id)
+    while state.current_team_id != state.config.draft.our_team_id:
+        draft_service.make_pick(draft_id, state.available_players[0].id)
+        state = draft_service.get_state(draft_id)
+    evaluated = BaselinePlayerEvaluator(simulations=100).evaluate(
+        state, state.available_players
+    )
     return state, evaluated, session_factory
 
 
@@ -119,11 +139,10 @@ def test_drafted_player_from_stale_candidate_list_is_rejected(service):
 
 @pytest.mark.parametrize("error", [TimeoutError("timeout"), RuntimeError("rate limit")])
 def test_timeout_and_provider_errors_fall_back(service, error):
-    state, evaluated, session_factory = setup_state(service)
+    state, evaluated, session_factory = setup_user_turn(service)
     primary = OpenAIStrategicAdvisor(
         session_factory,
         api_key="test-value",
-        prefetch_picks=999,
         client=SimpleNamespace(responses=FakeResponses(error=error)),
     )
     result = ResilientStrategicAdvisor(primary, OfflineStrategicAdvisor()).recommend(state, evaluated)
@@ -134,6 +153,58 @@ def test_timeout_and_provider_errors_fall_back(service, error):
     assert result.configured_model == "gpt-5.6-terra"
     assert result.configured_timeout_seconds == 25
     assert result.reasoning_effort == "low"
+
+
+def test_automatic_request_waits_for_our_turn_and_is_cached(service):
+    draft_service, draft_id, session_factory = service
+    state = draft_service.get_state(draft_id)
+    if state.current_team_id == state.config.draft.our_team_id:
+        draft_service.make_pick(draft_id, state.available_players[0].id)
+        state = draft_service.get_state(draft_id)
+    evaluated = BaselinePlayerEvaluator(simulations=100).evaluate(
+        state, state.available_players
+    )
+    responses = FakeResponses(valid_output([item.player.id for item in evaluated[:5]]))
+    advisor = OpenAIStrategicAdvisor(
+        session_factory,
+        api_key="test-value",
+        client=SimpleNamespace(responses=responses),
+    )
+    with pytest.raises(AdvisorUnavailable, match="only when our team"):
+        advisor.recommend(state, evaluated)
+    assert responses.calls == 0
+
+    state, evaluated, _ = setup_user_turn(service)
+    responses.output = valid_output([item.player.id for item in evaluated[:5]])
+    first = advisor.recommend(state, evaluated)
+    second = advisor.recommend(state, evaluated)
+    assert first.preferred.player.id == second.preferred.player.id
+    assert responses.calls == 1
+
+
+def test_failed_attempt_is_cached_until_explicit_retry(service):
+    state, evaluated, session_factory = setup_user_turn(service)
+    responses = FakeResponses(error=TimeoutError("timeout"))
+    primary = OpenAIStrategicAdvisor(
+        session_factory,
+        api_key="test-value",
+        client=SimpleNamespace(responses=responses),
+    )
+    resilient = ResilientStrategicAdvisor(primary, OfflineStrategicAdvisor())
+    first = resilient.recommend(state, evaluated)
+    second = resilient.recommend(state, evaluated)
+    assert first.is_fallback is True
+    assert second.is_fallback is True
+    assert "Use Try AI again" in second.fallback_reason
+    assert responses.calls == 1
+
+    responses.error = None
+    responses.output = valid_output([item.player.id for item in evaluated[:5]])
+    retried = primary.recommend(
+        state, evaluated, force=True, persist=True, use_cache=False
+    )
+    assert retried.is_fallback is False
+    assert responses.calls == 2
 
 
 def test_schema_rejects_invalid_categories_and_json():

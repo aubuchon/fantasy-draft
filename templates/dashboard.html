@@ -67,7 +67,7 @@
             <td><span class="position pos-{{ player.primary_position|lower }}">{{ player.primary_position }}</span></td>
             {% set analytic = evaluation_by_id.get(player.id) %}
             <td>{{ analytic.adp if analytic and analytic.adp is not none else player.adp or "—" }}</td><td>{{ analytic.our_tier if analytic else player.tier or "—" }}</td><td>{{ analytic.projected_points if analytic else player.projected_points or "—" }}</td><td>{{ "%+.1f"|format(analytic.vor) if analytic else "—" }}</td><td>{{ "%.0f%%"|format(analytic.survival_probability * 100) if analytic and analytic.survival_probability is not none else "—" }}</td>
-            <td>{% if state.draft_status == "active" %}<form action="/picks" method="post" data-pick-form><input type="hidden" name="player_id" value="{{ player.id }}"><button class="button primary" type="submit">Draft</button></form>{% endif %}</td>
+            <td>{% if state.draft_status == "active" %}<form action="/picks" method="post" data-instant-pick-form><input type="hidden" name="player_id" value="{{ player.id }}"><button class="button primary" type="submit">Draft</button></form>{% endif %}</td>
           </tr>
         {% else %}<tr><td colspan="9">No available players match.</td></tr>{% endfor %}
         </tbody>
@@ -84,6 +84,16 @@
       {% if recommendations.fallback_reason %}<small>{{ recommendations.fallback_reason }}</small>{% endif %}
       {% if recommendations.configured_model %}<small>Attempted {{ recommendations.configured_model }} · {{ recommendations.reasoning_effort or "configured" }} reasoning · {{ "%g"|format(recommendations.configured_timeout_seconds) }}s timeout</small>{% endif %}
     </div>
+    {% endif %}
+    {% if state.draft_status == "active" and state.current_team_id == state.config.draft.our_team_id %}
+    <form class="advisor-controls" action="/advisor/retry" method="post" data-ai-retry-form>
+      <label><span>AI model</span><select name="model">
+        {% for model in openai_models %}<option value="{{ model }}" {% if model == active_openai_model %}selected{% endif %}>{{ model }}</option>{% endfor %}
+      </select></label>
+      <button class="button" type="submit">{% if recommendations.is_fallback %}Try AI again{% else %}Re-run AI{% endif %}</button>
+    </form>
+    {% else %}
+    <p class="ai-trigger-note">AI will make one automatic request after the pick immediately before ours is saved.</p>
     {% endif %}
     {% if recommendations.preferred %}
     <div class="preferred"><span>Recommendation</span><strong>{{ recommendations.preferred.player.name }}</strong><small>{{ recommendations.overall_confidence or recommendations.preferred.confidence }}% confidence{% if recommendations.latency_ms %} · {{ recommendations.latency_ms }} ms{% endif %}</small>{% if recommendations.reason %}<p>{{ recommendations.reason }}</p>{% endif %}</div>

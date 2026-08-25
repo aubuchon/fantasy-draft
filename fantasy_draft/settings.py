@@ -25,11 +25,31 @@ class AppSettings:
     openai_live_timeout_seconds: float = 25.0
     openai_diagnostic_timeout_seconds: float = 30.0
     openai_reasoning_effort: str = "low"
-    openai_prefetch_picks: int = 3
+    openai_live_models: tuple[str, ...] = (
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+    )
     survival_simulations: int = 2000
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
+        openai_model = os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
+        configured_models = tuple(
+            dict.fromkeys(
+                model.strip()
+                for model in os.getenv(
+                    "OPENAI_LIVE_MODELS",
+                    "gpt-5.6-terra,gpt-5.6-luna,gpt-5.6-sol",
+                ).split(",")
+                if model.strip()
+            )
+        )
+        openai_live_models = (
+            configured_models
+            if openai_model in configured_models
+            else (openai_model, *configured_models)
+        )
         return cls(
             league_config_path=Path(
                 os.getenv("FANTASY_DRAFT_CONFIG", PROJECT_ROOT / "config" / "league.yaml")
@@ -54,7 +74,7 @@ class AppSettings:
             cache_dir=Path(os.getenv("FANTASY_DRAFT_CACHE_DIR", PROJECT_ROOT / "instance" / "cache")),
             backup_dir=Path(os.getenv("FANTASY_DRAFT_BACKUP_DIR", PROJECT_ROOT / "instance" / "backups")),
             openai_api_key=os.getenv("OPENAI_API_KEY") or None,
-            openai_model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
+            openai_model=openai_model,
             openai_live_timeout_seconds=float(os.getenv(
                 "OPENAI_LIVE_TIMEOUT_SECONDS",
                 os.getenv("OPENAI_TIMEOUT_SECONDS", "25"),
@@ -63,6 +83,6 @@ class AppSettings:
                 "OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS", "30"
             )),
             openai_reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "low"),
-            openai_prefetch_picks=int(os.getenv("OPENAI_PREFETCH_PICKS", "3")),
+            openai_live_models=openai_live_models,
             survival_simulations=int(os.getenv("SURVIVAL_SIMULATIONS", "2000")),
         )

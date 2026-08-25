@@ -40,13 +40,11 @@ def _services(settings: AppSettings):
         factory, api_key=settings.openai_api_key, model=settings.openai_model,
         timeout_seconds=settings.openai_live_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
-        prefetch_picks=settings.openai_prefetch_picks,
     )
     diagnostic_ai = OpenAIStrategicAdvisor(
         factory, api_key=settings.openai_api_key, model=settings.openai_model,
         timeout_seconds=settings.openai_diagnostic_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
-        prefetch_picks=settings.openai_prefetch_picks,
     )
     return (
         engine, factory, service, draft_id, importer, evaluator, exporter,

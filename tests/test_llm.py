@@ -161,6 +161,13 @@ def test_duplicate_identity_is_never_sent_to_openai(service):
     packet = json.loads(responses.last_kwargs["input"][1]["content"])
     sent_ids = {item["player_id"] for item in packet["allowed_candidates"]}
     assert len(packet["all_team_rosters"]) == state.config.league.team_count
+    assert packet["league"]["scoring_rules"] == state.config.scoring
+    assert packet["league"]["roster_slots"] == [
+        slot.model_dump() for slot in state.config.roster.slots
+    ]
+    assert packet["draft"]["type"] == state.config.draft.type
+    assert packet["draft"]["total_rounds"] == state.config.draft.rounds
+    assert packet["data_snapshot"] == state.data_snapshot
     assert packet["strategy_preferences"] == state.config.strategy.model_dump()
     assert "player-1" not in sent_ids
     assert "duplicate-player-1" not in sent_ids
@@ -261,6 +268,17 @@ def test_schema_rejects_invalid_categories_and_json():
             "recommendations": [], "preferred_player_id": "x",
             "overall_confidence": .5, "reason": "x", "next_pick_strategy": "x",
         })
+
+
+@pytest.mark.parametrize("limit", [4, 61])
+def test_candidate_limit_is_bounded(service, limit):
+    _, _, session_factory = service
+    with pytest.raises(ValueError, match="between 5 and 60"):
+        OpenAIStrategicAdvisor(
+            session_factory,
+            api_key="test-value",
+            candidate_limit=limit,
+        )
 
 
 def test_diagnostic_bypasses_cache_and_reports_configuration(service):

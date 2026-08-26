@@ -105,7 +105,7 @@ def test_replacement_level_accounts_for_players_already_drafted(league_config):
     assert after.levels["QB"] > before.levels["QB"]
 
 
-def test_advisor_allowlist_includes_needs_and_caps_surplus_position(service):
+def test_advisor_allowlist_expands_to_limit_with_position_diversity(service):
     draft_service, draft_id, _ = service
     original = draft_service.get_state(draft_id)
     our_team = original.config.draft.our_team_id
@@ -121,7 +121,7 @@ def test_advisor_allowlist_includes_needs_and_caps_surplus_position(service):
     ]
     state = SimpleNamespace(
         config=original.config,
-        team_needs={our_team: ["TE"]},
+        team_needs={our_team: ["TE", "K", "DEF"]},
         picks=qb_roster,
         current_pick=SimpleNamespace(round_number=12),
     )
@@ -144,8 +144,14 @@ def test_advisor_allowlist_includes_needs_and_caps_surplus_position(service):
         item(f"qb-{index}", f"Quarterback {index}", "QB", 200 - index)
         for index in range(10)
     ] + [
-        item(f"te-{index}", f"Tight End {index}", "TE", 100 - index)
-        for index in range(5)
+        item(f"te-{index}", f"Tight End {index}", "TE", 190 - index)
+        for index in range(10)
+    ] + [
+        item(f"rb-{index}", f"Running Back {index}", "RB", 180 - index)
+        for index in range(10)
+    ] + [
+        item(f"wr-{index}", f"Wide Receiver {index}", "WR", 170 - index)
+        for index in range(10)
     ] + [
         item(f"k-{index}", f"Kicker {index}", "K", 90 - index)
         for index in range(5)
@@ -153,10 +159,13 @@ def test_advisor_allowlist_includes_needs_and_caps_surplus_position(service):
         item(f"def-{index}", f"Defense {index}", "DEF", 80 - index)
         for index in range(5)
     ]
-    selected = select_advisor_candidates(state, evaluated, limit=20)
+    selected = select_advisor_candidates(state, evaluated, limit=30)
     counts = Counter(candidate.player.primary_position for candidate in selected)
-    assert counts["QB"] == 2
-    assert counts["TE"] >= 3
+    assert len(selected) == 30
+    assert counts["QB"] == 6
+    assert counts["TE"] == 9
+    assert counts["RB"] == 9
+    assert counts["WR"] == 4
     assert counts["K"] == 1
     assert counts["DEF"] == 1
 

@@ -142,13 +142,17 @@ class OpenAIStrategicAdvisor:
         model: str = "gpt-5.6-terra",
         timeout_seconds: float = 25.0,
         reasoning_effort: str = "low",
+        candidate_limit: int = 30,
         client: ResponsesClient | None = None,
     ):
+        if not 5 <= candidate_limit <= 60:
+            raise ValueError("OpenAI candidate limit must be between 5 and 60")
         self.session_factory = session_factory
         self.api_key = api_key
         self.model = model
         self.timeout_seconds = timeout_seconds
         self.reasoning_effort = reasoning_effort
+        self.candidate_limit = candidate_limit
         self.max_retries = 0
         self._client = client
 
@@ -175,8 +179,11 @@ class OpenAIStrategicAdvisor:
                 "teams": state.config.league.team_count,
                 "scoring_type": state.config.league.scoring_type,
                 "roster_slots": [slot.model_dump() for slot in state.config.roster.slots],
+                "scoring_rules": state.config.scoring,
             },
             "draft": {
+                "type": state.config.draft.type,
+                "total_rounds": state.config.draft.rounds,
                 "round": state.current_pick.round_number if state.current_pick else None,
                 "overall_pick": state.current_pick.overall if state.current_pick else None,
                 "our_next_pick": state.next_user_pick,
@@ -186,6 +193,7 @@ class OpenAIStrategicAdvisor:
             "our_needs": state.team_needs[state.config.draft.our_team_id],
             "our_remaining_slots": state.team_remaining_slots[state.config.draft.our_team_id],
             "strategy_preferences": state.config.strategy.model_dump(),
+            "data_snapshot": state.data_snapshot,
             "all_team_rosters": [
                 {
                     "team_id": team.id,
@@ -422,7 +430,9 @@ class OpenAIStrategicAdvisor:
     ) -> RecommendationSet:
         available_ids = {player.id for player in state.available_players}
         current = [item for item in evaluated if item.player.id in available_ids]
-        candidates = select_advisor_candidates(state, current, limit=20)
+        candidates = select_advisor_candidates(
+            state, current, limit=self.candidate_limit
+        )
         if len(candidates) < 5:
             raise AdvisorUnavailable("at least five candidates are required")
         packet = self._candidate_packet(state, candidates)
@@ -463,7 +473,9 @@ class OpenAIStrategicAdvisor:
                             "You are a live fantasy draft strategist optimizing expected season-long "
                             "starting-lineup value. Use only allowed candidate IDs. Deterministic state "
                             "is authoritative. Account for every roster, diminishing value at surplus "
-                            "positions, required unfilled starters, and next-pick availability. Apply "
+                            "positions, required unfilled starters, and next-pick availability. Use "
+                            "the exact scoring rules provided to understand positional incentives; "
+                            "deterministic league_projected_points remain authoritative. Treat "
                             "configured rookie/team preferences only as small tie-breakers. Do not fill "
                             "all five categories with a surplus position when a viable required-starter "
                             "candidate is allowed. Honor configured maximum roster counts and target "

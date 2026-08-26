@@ -152,15 +152,21 @@ def select_advisor_candidates(
     *,
     limit: int,
 ) -> list[EvaluatedPlayer]:
-    """Build a diverse, roster-aware allowlist from deterministic evaluations."""
+    """Build a score-ordered, position-diverse, roster-aware LLM allowlist."""
     identity_counts = Counter(
         (normalize_name(item.player.name), item.player.primary_position)
         for item in evaluated
     )
-    eligible = [
-        item for item in evaluated
-        if identity_counts[(normalize_name(item.player.name), item.player.primary_position)] == 1
-    ]
+    eligible = sorted(
+        (
+            item for item in evaluated
+            if identity_counts[
+                (normalize_name(item.player.name), item.player.primary_position)
+            ] == 1
+        ),
+        key=lambda item: item.quantitative_score,
+        reverse=True,
+    )
     our_team = state.config.draft.our_team_id
     roster_counts = Counter(
         pick.player.primary_position for pick in state.picks if pick.team_id == our_team
@@ -172,25 +178,24 @@ def select_advisor_candidates(
         if getattr(state, "current_pick", None) is not None
         else 1
     )
+
+    def position_cap(position: str) -> int:
+        maximum = state.config.strategy.max_roster_counts.get(position)
+        if maximum is not None and roster_counts[position] >= maximum:
+            return 0
+        target = state.config.strategy.position_target_rounds.get(position)
+        if target is not None and current_round < target:
+            return 1
+        if position in needed:
+            return max(3, limit * 3 // 10)
+        if roster_counts[position] > capacity[position]:
+            return max(2, limit // 5)
+        if roster_counts[position] == capacity[position]:
+            return max(3, limit // 4)
+        return max(4, limit * 3 // 10)
+
     position_caps = {
-        position: (
-            0
-            if (
-                (maximum := state.config.strategy.max_roster_counts.get(position))
-                is not None
-                and roster_counts[position] >= maximum
-            )
-            else 1
-            if (
-                (target := state.config.strategy.position_target_rounds.get(position))
-                is not None
-                and current_round < target
-            )
-            else 3 if position in needed
-            else 2 if roster_counts[position] > capacity[position]
-            else 3 if roster_counts[position] == capacity[position]
-            else 4
-        )
+        position: position_cap(position)
         for position in {item.player.primary_position for item in eligible}
     }
     selected: list[EvaluatedPlayer] = []

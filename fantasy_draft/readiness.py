@@ -60,6 +60,7 @@ class ReadinessService:
         fantasypros_provider: FantasyProsProvider | None = None,
         ai_diagnostic_advisor: OpenAIStrategicAdvisor | None = None,
         openai_configured: bool = False,
+        candidate_limit: int = 30,
     ):
         self.session_factory = session_factory
         self.draft_service = draft_service
@@ -71,6 +72,7 @@ class ReadinessService:
         self.fantasypros_provider = fantasypros_provider
         self.ai_diagnostic_advisor = ai_diagnostic_advisor
         self.openai_configured = openai_configured
+        self.candidate_limit = candidate_limit
 
     def _engine_rehearsal(self, config: LeagueConfig) -> str:
         engine = create_database_engine("sqlite:///:memory:")
@@ -223,7 +225,9 @@ class ReadinessService:
                 Check("PASS" if elapsed < 5 else "WARNING", f"Survival simulation and recommendations completed in {elapsed:.2f}s."),
             ])
             advisor_candidates = select_advisor_candidates(
-                state, evaluated, limit=20
+                state,
+                evaluated,
+                limit=self.candidate_limit,
             )
             needed_codes = set(
                 state.team_needs[state.config.draft.our_team_id]
@@ -244,6 +248,10 @@ class ReadinessService:
                 if not missing_needs else
                 "Advisor allowlist omits required starter positions.",
                 ", ".join(missing_needs),
+            ))
+            sections["EVALUATION"].append(Check(
+                "PASS" if len(advisor_candidates) >= 20 else "WARNING",
+                f"Advisor packet contains {len(advisor_candidates)} position-diverse candidates.",
             ))
         except Exception as exc:
             evaluated = []

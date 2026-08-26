@@ -25,6 +25,7 @@ class AppSettings:
     openai_live_timeout_seconds: float = 25.0
     openai_diagnostic_timeout_seconds: float = 30.0
     openai_reasoning_effort: str = "low"
+    openai_candidate_limit: int = 30
     openai_live_models: tuple[str, ...] = (
         "gpt-5.6-terra",
         "gpt-5.6-luna",
@@ -83,6 +84,7 @@ class AppSettings:
                 "OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS", "30"
             )),
             openai_reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "low"),
+            openai_candidate_limit=int(os.getenv("OPENAI_CANDIDATE_LIMIT", "30")),
             openai_live_models=openai_live_models,
             survival_simulations=int(os.getenv("SURVIVAL_SIMULATIONS", "2000")),
         )

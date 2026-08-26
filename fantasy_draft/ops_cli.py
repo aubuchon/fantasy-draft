@@ -42,11 +42,13 @@ def _services(settings: AppSettings):
         factory, api_key=settings.openai_api_key, model=settings.openai_model,
         timeout_seconds=settings.openai_live_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
+        candidate_limit=settings.openai_candidate_limit,
     )
     diagnostic_ai = OpenAIStrategicAdvisor(
         factory, api_key=settings.openai_api_key, model=settings.openai_model,
         timeout_seconds=settings.openai_diagnostic_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
+        candidate_limit=settings.openai_candidate_limit,
     )
     return (
         engine, factory, service, draft_id, importer, evaluator, exporter,
@@ -132,6 +134,7 @@ def main() -> None:
                     diagnostic_ai if settings.openai_api_key else None
                 ),
                 openai_configured=bool(settings.openai_api_key),
+                candidate_limit=settings.openai_candidate_limit,
             ).run(draft_id, live_external_checks=not args.offline)
             print(f"{report.status} — DRAFT #{draft_id}")
             for section, checks in report.sections.items():

@@ -155,6 +155,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         model=settings.openai_model,
         timeout_seconds=settings.openai_live_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
+        candidate_limit=settings.openai_candidate_limit,
     )
     advisor = ResilientStrategicAdvisor(
         openai_advisor,
@@ -166,6 +167,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         model=settings.openai_model,
         timeout_seconds=settings.openai_diagnostic_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
+        candidate_limit=settings.openai_candidate_limit,
     )
     advisor_lock = Lock()
     fantasypros_provider = FantasyProsProvider(
@@ -192,6 +194,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             openai_diagnostic_advisor if settings.openai_api_key else None
         ),
         openai_configured=bool(settings.openai_api_key),
+        candidate_limit=settings.openai_candidate_limit,
     )
     templates = Jinja2Templates(directory=PROJECT_ROOT / "templates")
     asset_digest = hashlib.sha256()

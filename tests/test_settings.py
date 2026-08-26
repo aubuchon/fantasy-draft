@@ -10,6 +10,7 @@ def test_live_openai_defaults_fit_thirty_second_decision_budget(monkeypatch):
         "OPENAI_TIMEOUT_SECONDS",
         "OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS",
         "OPENAI_REASONING_EFFORT",
+        "OPENAI_CANDIDATE_LIMIT",
         "OPENAI_LIVE_MODELS",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -18,6 +19,7 @@ def test_live_openai_defaults_fit_thirty_second_decision_budget(monkeypatch):
     assert settings.openai_live_timeout_seconds == 25
     assert settings.openai_diagnostic_timeout_seconds == 30
     assert settings.openai_reasoning_effort == "low"
+    assert settings.openai_candidate_limit == 30
     assert settings.openai_live_models == (
         "gpt-5.6-terra",
         "gpt-5.6-luna",
@@ -29,10 +31,12 @@ def test_openai_live_and_diagnostic_timeouts_are_independent(monkeypatch):
     monkeypatch.setenv("OPENAI_LIVE_TIMEOUT_SECONDS", "6")
     monkeypatch.setenv("OPENAI_DIAGNOSTIC_TIMEOUT_SECONDS", "31")
     monkeypatch.setenv("OPENAI_REASONING_EFFORT", "low")
+    monkeypatch.setenv("OPENAI_CANDIDATE_LIMIT", "36")
     settings = AppSettings.from_environment()
     assert settings.openai_live_timeout_seconds == 6
     assert settings.openai_diagnostic_timeout_seconds == 31
     assert settings.openai_reasoning_effort == "low"
+    assert settings.openai_candidate_limit == 36
 
 
 def test_legacy_timeout_only_applies_to_live_path(monkeypatch):
